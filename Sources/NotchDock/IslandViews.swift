@@ -364,7 +364,7 @@ final class ExpandedView: NSView {
                                   width: titleLabel.frame.width, height: titleLabel.frame.height)
 
         // Keep the localized item count below the content, outside the hardware notch.
-        countLabel.alignment = .center
+        countLabel.alignment = .left
         countLabel.frame = NSRect(x: 12, y: 26, width: W - 24, height: 16)
 
         collapseButton.frame = NSRect(x: W - 26, y: topBarY + (28 - 16) / 2, width: 16, height: 16)
