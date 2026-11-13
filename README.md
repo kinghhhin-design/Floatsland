@@ -6,7 +6,7 @@ A minimal black file shelf for the macOS notch. Drop files, folders or text, the
 
 ## Download / 下载
 
-Download **Floatsland-2.1.1-macos-arm64.zip** from [Releases](https://github.com/kinghhhin-design/Floatsland/releases/latest), extract it and move **Floatsland.app** to Applications.
+Download **Floatsland-2.1.2-macos-arm64.zip** from [Releases](https://github.com/kinghhhin-design/Floatsland/releases/latest), extract it and move **Floatsland.app** to Applications.
 
 从 Releases 下载 ZIP，解压后将 **Floatsland.app** 拖入「应用程序」。若之前安装过 FloatIsland，请先退出并替换旧版，避免同时运行。
 

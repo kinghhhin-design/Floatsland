@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.2
+
+- Move the localized item count to the bottom of the expanded panel, above the drag hint, so the hardware notch cannot obscure it.
+- Reserve separate space for the count, file list and drop confirmation.
+
 ## 2.1.1
 
 First public release of Floatsland.

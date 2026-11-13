@@ -363,10 +363,9 @@ final class ExpandedView: NSView {
         titleLabel.frame = NSRect(x: 32, y: topBarY + (28 - titleLabel.frame.height) / 2,
                                   width: titleLabel.frame.width, height: titleLabel.frame.height)
 
-        countLabel.sizeToFit()
-        countLabel.frame = NSRect(x: 32 + titleLabel.frame.width + 7,
-                                  y: topBarY + (28 - countLabel.frame.height) / 2,
-                                  width: countLabel.frame.width, height: countLabel.frame.height)
+        // Keep the localized item count below the content, outside the hardware notch.
+        countLabel.alignment = .center
+        countLabel.frame = NSRect(x: 12, y: 26, width: W - 24, height: 16)
 
         collapseButton.frame = NSRect(x: W - 26, y: topBarY + (28 - 16) / 2, width: 16, height: 16)
 
@@ -382,7 +381,7 @@ final class ExpandedView: NSView {
 
         hintLabel.frame = NSRect(x: 12, y: 6, width: W - 24, height: 14)
 
-        scrollView.frame = NSRect(x: 6, y: 24, width: W - 12, height: dividerY - 24 - 6)
+        scrollView.frame = NSRect(x: 6, y: 48, width: W - 12, height: max(0, dividerY - 48 - 6))
 
         emptyState.frame = scrollView.frame
 
