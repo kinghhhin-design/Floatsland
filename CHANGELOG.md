@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.5
+
+- Center the primary drag preview on the pointer hotspot (arrow tip), removing the lower-right offset. Other behavior is unchanged.
+
 ## 2.1.4
 
 - Anchor file and text drag previews next to the pointer, independent of where the row was grabbed.

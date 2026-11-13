@@ -4,8 +4,8 @@ import AppKit
 enum DragPreview {
     static func frame(at pointer: NSPoint, size: NSSize, index: Int, flipped: Bool) -> NSRect {
         let offset = CGFloat(index % 6) * 4
-        return NSRect(x: pointer.x + 10 + offset,
-                      y: flipped ? pointer.y + 10 + offset : pointer.y - 10 - size.height - offset,
+        return NSRect(x: pointer.x - size.width / 2 + offset,
+                      y: pointer.y - size.height / 2 + (flipped ? offset : -offset),
                       width: size.width, height: size.height)
     }
 
