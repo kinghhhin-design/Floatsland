@@ -792,23 +792,23 @@ final class ItemRowView: NSView, NSDraggingSource {
             return
         }
 
+        let pointer = convert(event.locationInWindow, from: nil)
         var draggingItems: [NSDraggingItem] = []
         for (i, it) in valid.enumerated() {
             let writer: NSPasteboardWriting
             let icon: NSImage
             if let url = it.url {
                 writer = url as NSURL
-                icon = NSWorkspace.shared.icon(forFile: url.path)
+                icon = NSWorkspace.shared.icon(forFile: url.path).copy() as! NSImage
             } else {
                 writer = (it.text ?? "") as NSString
-                icon = Self.textIcon()
+                icon = DragPreview.textImage()
             }
-            icon.size = NSSize(width: 28, height: 28)
-            let offset = CGFloat(i % 6) * 4
+            let previewSize = it.isText ? NSSize(width: 36, height: 36) : NSSize(width: 28, height: 28)
+            icon.size = previewSize
             let draggingItem = NSDraggingItem(pasteboardWriter: writer)
-            draggingItem.setDraggingFrame(NSRect(x: 8 + offset,
-                                                 y: bounds.height - 34 - offset,
-                                                 width: 28, height: 28),
+            draggingItem.setDraggingFrame(DragPreview.frame(at: pointer, size: previewSize,
+                                                            index: i, flipped: isFlipped),
                                           contents: icon)
             draggingItems.append(draggingItem)
         }
@@ -817,16 +817,8 @@ final class ItemRowView: NSView, NSDraggingSource {
         onDragStart?(valid)
         let session = beginDraggingSession(with: draggingItems, event: event, source: self)
         session.animatesToStartingPositionsOnCancelOrFail = true
-        if valid.count > 1 {
-            session.draggingFormation = .stack
-        }
-    }
-
-    private static func textIcon() -> NSImage {
-        let config = NSImage.SymbolConfiguration(pointSize: 28, weight: .medium)
-            .applying(.init(paletteColors: [.white]))
-        return NSImage(systemSymbolName: "text.quote", accessibilityDescription: nil)?
-            .withSymbolConfiguration(config) ?? NSImage()
+        // Preserve our cursor-relative offsets instead of letting AppKit re-stack them.
+        session.draggingFormation = .none
     }
 
     // MARK: NSDraggingSource

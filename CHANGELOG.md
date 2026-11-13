@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.4
+
+- Anchor file and text drag previews next to the pointer, independent of where the row was grabbed.
+- Use an opaque gray text card with dark marks and contrasting edges for visibility over light and dark destinations.
+- Keep multi-item previews in a compact cursor-relative stack.
+
 ## 2.1.3
 
 - Align the item count at the bottom-left. No other layout or behavior changes.
