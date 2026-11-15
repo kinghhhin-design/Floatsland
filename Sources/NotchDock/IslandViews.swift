@@ -937,6 +937,8 @@ final class ListContainerView: NSView {
     private var bandStartPoint: NSPoint?
     private var isBanding = false
     private let bandLayer = CAShapeLayer()
+    private var scrollTimer: Timer?
+    private var bandHasDragged = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -949,16 +951,71 @@ final class ListContainerView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    // Leave narrow gutters available for marquee selection even when every row is occupied.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard bounds.contains(local) else { return nil }
+        if local.x < 8 || local.x >= bounds.width - 8 { return self }
+        return super.hitTest(point)
+    }
+
+    deinit { scrollTimer?.invalidate() }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { finishBand() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         bandStartPoint = p
+        bandHasDragged = false
         isBanding = true
         onBandSelectStart?(p, event.modifierFlags.contains(.command))
+        scrollTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            self?.advanceBand()
+        }
+        scrollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .eventTracking)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        bandHasDragged = true
+        updateBand(at: convert(event.locationInWindow, from: nil))
+    }
+
+    static func scrollStep(pointerY: CGFloat, visible: NSRect) -> CGFloat {
+        let edge = min(28, visible.height / 3)
+        guard edge > 0 else { return 0 }
+        if pointerY < visible.minY + edge {
+            return -min(12, max(1, (visible.minY + edge - pointerY) * 0.4))
+        }
+        if pointerY > visible.maxY - edge {
+            return min(12, max(1, (pointerY - visible.maxY + edge) * 0.4))
+        }
+        return 0
+    }
+
+    private func advanceBand() {
+        guard isBanding, let window, let scroll = enclosingScrollView else { return }
+        guard NSEvent.pressedMouseButtons & 1 != 0 else { finishBand(); return }
+        guard bandHasDragged else { return }
+        let clip = scroll.contentView
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let step = Self.scrollStep(pointerY: point.y, visible: clip.bounds)
+        let y = min(max(0, bounds.height - clip.bounds.height), max(0, clip.bounds.minY + step))
+        if y != clip.bounds.minY {
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
+            scroll.reflectScrolledClipView(clip)
+        }
+        updateBand(at: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+    }
+
+    private func updateBand(at point: NSPoint) {
         guard isBanding, let start = bandStartPoint else { return }
-        let p = convert(event.locationInWindow, from: nil)
+        let p = NSPoint(x: min(bounds.maxX, max(0, point.x)), y: min(bounds.maxY, max(0, point.y)))
         let rect = NSRect(x: min(start.x, p.x),
                           y: min(start.y, p.y),
                           width: abs(p.x - start.x),
@@ -968,6 +1025,12 @@ final class ListContainerView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        finishBand()
+    }
+
+    private func finishBand() {
+        scrollTimer?.invalidate()
+        scrollTimer = nil
         guard isBanding else { return }
         isBanding = false
         bandStartPoint = nil

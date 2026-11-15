@@ -6,7 +6,7 @@ A minimal black file shelf for the macOS notch. Drop files, folders or text, the
 
 ## Download / 下载
 
-Download **Floatsland-2.2.0-macos-arm64.zip** from [Releases](https://github.com/kinghhhin-design/Floatsland/releases/latest), extract it and move **Floatsland.app** to Applications.
+Download **Floatsland-2.2.1-macos-arm64.zip** from [Releases](https://github.com/kinghhhin-design/Floatsland/releases/latest), extract it and move **Floatsland.app** to Applications.
 
 从 Releases 下载 ZIP，解压后将 **Floatsland.app** 拖入「应用程序」。若之前安装过 FloatIsland，请先退出并替换旧版，避免同时运行。
 
@@ -19,7 +19,7 @@ Download **Floatsland-2.2.0-macos-arm64.zip** from [Releases](https://github.com
 - Pure black capsule with no text while collapsed; no bright outline or drop bounce.
 - Drag files, folders and selected text onto the island.
 - Drag out to copy; hold Command to allow moving (the destination determines the final operation).
-- Multiple selection, marquee selection, batch dragging and Finder reveal.
+- Multiple selection, marquee selection, batch dragging and Finder reveal. Start marquee selection from either narrow side gutter even when the list is full; drag to the top or bottom edge to scroll while selecting.
 - Pointer inside keeps the panel open. Click the top center, collapse arrow or outside to close.
 - A stationary green confirmation appears after a successful drop.
 - Configurable size, position, trigger area, collapse delay, multi-display support and login launch.

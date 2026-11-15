@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.1
+
+- Keep narrow side gutters available for marquee selection when the list is full.
+- Automatically scroll at the top and bottom edges during marquee selection, including while the pointer is stationary.
+- Preserve file drag-out behavior and stop scrolling when the selection gesture ends.
+
 ## 2.2.0
 
 - Automatically capture newly copied text and clipboard images with separate settings in all five languages.
