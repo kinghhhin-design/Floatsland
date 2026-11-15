@@ -105,6 +105,11 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
             self.manager?.togglePanel(self)
         }
         expanded.onRemoveItem = { [weak self] id in self?.manager?.shelf.remove(id: id) }
+        expanded.onOpenItem = { [weak self] id in
+            guard let self, let manager = self.manager,
+                  let url = manager.shelf.items.first(where: { $0.id == id })?.url else { return }
+            if !NSWorkspace.shared.open(url) { NSSound.beep() }
+        }
         expanded.onRevealItem = { [weak self] id in
             guard let self, let manager = self.manager else { return }
             if let item = manager.shelf.items.first(where: { $0.id == id }),

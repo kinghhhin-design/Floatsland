@@ -6,7 +6,7 @@ A minimal black file shelf for the macOS notch. Drop files, folders or text, the
 
 ## Download / 下载
 
-Download **Floatsland-2.1.5-macos-arm64.zip** from [Releases](https://github.com/kinghhhin-design/Floatsland/releases/latest), extract it and move **Floatsland.app** to Applications.
+Download **Floatsland-2.2.0-macos-arm64.zip** from [Releases](https://github.com/kinghhhin-design/Floatsland/releases/latest), extract it and move **Floatsland.app** to Applications.
 
 从 Releases 下载 ZIP，解压后将 **Floatsland.app** 拖入「应用程序」。若之前安装过 FloatIsland，请先退出并替换旧版，避免同时运行。
 
@@ -26,8 +26,22 @@ Download **Floatsland-2.1.5-macos-arm64.zip** from [Releases](https://github.com
 - Negative vertical offsets and a “Hide capsule inside notch” preset.
 - Traditional Chinese, Simplified Chinese, English, Japanese and Korean; switch in Settings → Language.
 - Stored items and language choice persist across launches.
+- Automatically save newly copied text and clipboard screenshots/images, with independent switches in Settings (enabled by default).
+- Screenshot thumbnails; double-click saved screenshots to open them in the default image app.
+- Newest additions appear first, including a one-time migration of existing shelf order.
+- Only visible list rows are loaded; resizing animations reuse rows instead of rebuilding the entire shelf.
 
-**Files are references, not backups.** Removing a shelf entry does not delete the original; moving or deleting the original may invalidate the entry. Text fragments and file paths are stored locally in UserDefaults. The app has no built-in network service or analytics.
+### Clipboard and storage / 剪贴板与存储
+
+Copy text or take a screenshot to the clipboard while Floatsland is running; it is added automatically without rewriting the clipboard. Clipboard contents present before launch are not imported. Blank text is ignored and identical text is deduplicated. Clipboard images are saved as PNG files in `~/Library/Application Support/Floatsland/ClipboardImages`.
+
+运行时复制文字，或将截图保存到剪贴板，即可自动暂存；设置中可分别关闭文字和图片自动暂存。截图显示缩略图，双击可用默认图片应用打开。新加入的内容排在最上方。
+
+Removing an automatically saved screenshot, or clearing the shelf, moves that screenshot to **Trash**. It remains recoverable and uses disk space until Trash is emptied. If moving it fails, the shelf entry is kept. Ordinary file references never delete or trash the original.
+
+移除自动保存的截图或清空暂存时，截图会移到**废纸篓**；清空废纸篓后才释放其空间。普通文件只保存引用，移除暂存不会删除原文件。
+
+**Ordinary files are references, not backups.** Removing a shelf entry does not delete the original; moving or deleting the original may invalidate the entry. Text fragments and file paths are stored locally in UserDefaults. The app has no built-in network service or analytics.
 
 ## Build / 编译
 

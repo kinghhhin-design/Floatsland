@@ -45,6 +45,10 @@ enum Localization {
         catalog[key]?[(language ?? self.language).column] ?? key
     }
     static let catalog: [String: [String]] = [
+        "自动暂存复制的文字": ["自动暂存复制的文字", "自動暫存複製的文字", "Auto-save copied text", "コピーしたテキストを自動保管", "복사한 텍스트 자동 보관"],
+        "自动暂存剪贴板图片（含截图）": ["自动暂存剪贴板图片（含截图）", "自動暫存剪貼簿圖片（含截圖）", "Auto-save clipboard images (including screenshots)", "クリップボード画像を自動保管（スクリーンショットを含む）", "클립보드 이미지 자동 보관 (스크린샷 포함)"],
+        "只读取新图片，不改写剪贴板；图片保存在本机。": ["只读取新图片，不改写剪贴板；图片保存在本机。", "僅讀取新圖片，不改寫剪貼簿；圖片儲存在本機。", "Reads new images without changing the clipboard. Images stay on this Mac.", "新しい画像のみ読み取り、クリップボードは変更しません。画像はこのMacに保存されます。", "새 이미지만 읽고 클립보드는 변경하지 않습니다. 이미지는 이 Mac에 저장됩니다."],
+
         "浮屿": ["Floatsland", "Floatsland", "Floatsland", "Floatsland", "Floatsland"],
         "隐藏浮屿": ["隐藏Floatsland", "隱藏Floatsland", "Hide Floatsland", "Floatslandを隠す", "Floatsland 가리기"],
         "显示浮屿": ["显示Floatsland", "顯示Floatsland", "Show Floatsland", "Floatslandを表示", "Floatsland 보기"],

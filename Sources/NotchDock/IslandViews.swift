@@ -237,12 +237,13 @@ final class ExpandedView: NSView {
     var onCollapseClick: (() -> Void)?
     var onRemoveItem: ((UUID) -> Void)?
     var onRevealItem: ((UUID) -> Void)?
+    var onOpenItem: ((UUID) -> Void)?
     var onCopyTextItem: ((UUID) -> Void)?
     var onDragStart: (([ShelfStore.Item]) -> Void)?
     var onDragEnd: (([ShelfStore.Item], NSDragOperation) -> Void)?
 
     var items: [ShelfStore.Item] = [] {
-        didSet { rebuildRows() }
+        didSet { if items != oldValue { rebuildRows() } }
     }
 
     private var selection: Set<UUID> = []
@@ -261,7 +262,9 @@ final class ExpandedView: NSView {
     private let listContainer = ListContainerView()
     private let emptyState = EmptyStateView()
 
-    private var rows: [ItemRowView] = []
+    private var rows: [UUID: ItemRowView] = [:]
+    private var observingScroll: NSObjectProtocol?
+    private var updatingRows = false
     private var lastListWidth: CGFloat = 0
     private var confirmationReset: DispatchWorkItem?
 
@@ -346,6 +349,10 @@ final class ExpandedView: NSView {
         }
 
         addSubview(emptyState)
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        observingScroll = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: scrollView.contentView,
+            queue: .main) { [weak self] _ in self?.updateVisibleRows() }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -386,9 +393,10 @@ final class ExpandedView: NSView {
         emptyState.frame = scrollView.frame
 
         let w = scrollView.contentSize.width
-        if abs(w - lastListWidth) > 1 && !items.isEmpty {
-            rebuildRows()
+        if abs(w - lastListWidth) > 0.5 || listContainer.frame.height != max(CGFloat(items.count) * rowHeight, scrollView.contentSize.height) {
+            updateListGeometry()
         }
+        updateVisibleRows()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -412,25 +420,61 @@ final class ExpandedView: NSView {
     }
 
     private func rebuildRows() {
-        rows.forEach { $0.removeFromSuperview() }
-        rows = []
+        let ids = Set(items.map(\.id))
+        selection.formIntersection(ids)
+        selectionAnchor = nil
+        for (id, row) in rows where !ids.contains(id) && !row.interactionActive {
+            row.removeFromSuperview()
+            rows.removeValue(forKey: id)
+        }
+        updateListGeometry()
+        updateVisibleRows()
+        emptyState.isHidden = !items.isEmpty
+        scrollView.isHidden = items.isEmpty
+        countLabel.stringValue = items.isEmpty ? "" : String(format: L("%d 项"), items.count)
+        clearButton.isEnabled = !items.isEmpty
+        selectAllButton.isEnabled = !items.isEmpty
+    }
 
-        let width = max(scrollView.contentSize.width, 200)
+    deinit {
+        if let observingScroll { NotificationCenter.default.removeObserver(observingScroll) }
+    }
+
+    private func updateListGeometry() {
         lastListWidth = scrollView.contentSize.width
-        // 高度至少占满可视区域，保证空白处也能拖拽框选
-        let neededHeight = max(CGFloat(items.count) * rowHeight,
-                               scrollView.contentSize.height)
-        listContainer.frame = NSRect(x: 0, y: 0, width: width, height: neededHeight)
+        listContainer.frame = NSRect(x: 0, y: 0, width: max(lastListWidth, 1),
+            height: max(CGFloat(items.count) * rowHeight, scrollView.contentSize.height))
+    }
 
-        // 清理已不存在条目的选中状态
-        selection = selection.filter { id in items.contains(where: { $0.id == id }) }
+    // Keep only the viewport plus two buffer rows on each side alive.
+    private func updateVisibleRows() {
+        guard !updatingRows else { return }
+        updatingRows = true
+        defer { updatingRows = false }
+        let visible = scrollView.contentView.bounds
+        let lower = min(items.count, max(0, Int(floor(visible.minY / rowHeight)) - 2))
+        let upper = min(items.count, max(lower, Int(ceil(visible.maxY / rowHeight)) + 2))
+        let wanted = Set(items[lower..<upper].map(\.id))
+        for (id, row) in rows where !wanted.contains(id) && !row.interactionActive {
+            row.removeFromSuperview()
+            rows.removeValue(forKey: id)
+        }
+        let width = max(scrollView.contentSize.width, 1)
+        for i in lower..<upper {
+            let item = items[i]
+            let frame = NSRect(x: 0, y: CGFloat(i) * rowHeight, width: width, height: rowHeight)
+            if let row = rows[item.id] {
+                if row.frame != frame { row.frame = frame }
+                row.isSelected = selection.contains(item.id)
+                continue
+            }
 
-        for (i, item) in items.enumerated() {
             let row = ItemRowView(frame: NSRect(x: 0, y: CGFloat(i) * rowHeight,
                                                 width: width, height: rowHeight),
                                   item: item)
             row.isSelected = selection.contains(item.id)
             row.onRemove = { [weak self] in self?.onRemoveItem?(item.id) }
+            row.onOpen = { [weak self] in self?.onOpenItem?(item.id) }
             row.onReveal = { [weak self] in self?.onRevealItem?(item.id) }
             row.onCopyText = { [weak self] in self?.onCopyTextItem?(item.id) }
             row.onMouseDownRequest = { [weak self] event in
@@ -451,17 +495,9 @@ final class ExpandedView: NSView {
             row.onDragStart = { [weak self] dragged in self?.onDragStart?(dragged) }
             row.onDragEnd = { [weak self] dragged, op in self?.onDragEnd?(dragged, op) }
             listContainer.addSubview(row)
-            rows.append(row)
+            rows[item.id] = row
         }
 
-        scrollView.documentView = listContainer
-
-        emptyState.isHidden = !items.isEmpty
-        scrollView.isHidden = items.isEmpty
-        countLabel.stringValue = items.isEmpty ? "" : String(format: L("%d 项"), items.count)
-        clearButton.isEnabled = !items.isEmpty
-        selectAllButton.isEnabled = !items.isEmpty
-        needsDisplay = true
     }
 
     // MARK: - 多选
@@ -508,9 +544,7 @@ final class ExpandedView: NSView {
     }
 
     private func applySelection() {
-        for (i, item) in items.enumerated() {
-            rows[i].isSelected = selection.contains(item.id)
-        }
+        for (id, row) in rows { row.isSelected = selection.contains(id) }
     }
 
     /// 右键行为：未选中则只选中该行；已选中则保持多选不变。
@@ -593,10 +627,11 @@ final class ExpandedView: NSView {
 final class ItemRowView: NSView, NSDraggingSource {
     let item: ShelfStore.Item
     var isSelected = false {
-        didSet { applyVisuals() }
+        didSet { if isSelected != oldValue { applyVisuals() } }
     }
     var onRemove: (() -> Void)?
     var onReveal: (() -> Void)?
+    var onOpen: (() -> Void)?
     var onCopyText: (() -> Void)?
     var onMouseDownRequest: ((NSEvent) -> Void)?
     var onClickEnd: ((ShelfStore.Item) -> Void)?
@@ -612,6 +647,7 @@ final class ItemRowView: NSView, NSDraggingSource {
     private let removeButton = NSButton()
     private var hovered = false
     private var downLocation: NSPoint?
+    var interactionActive: Bool { downLocation != nil || !lastDraggedItems.isEmpty }
     private var lastDraggedItems: [ShelfStore.Item] = []
 
     init(frame frameRect: NSRect, item: ShelfStore.Item) {
@@ -621,6 +657,14 @@ final class ItemRowView: NSView, NSDraggingSource {
 
         if let url = item.url {
             iconView.image = NSWorkspace.shared.icon(forFile: url.path)
+            if ManagedClipboardImages.owns(url) {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    guard let preview = ManagedClipboardImages.thumbnail(url) else { return }
+                    DispatchQueue.main.async { [weak self] in
+                        self?.iconView.image = preview
+                    }
+                }
+            }
             nameLabel.stringValue = url.lastPathComponent
             nameLabel.toolTip = url.path
             removeButton.setAccessibilityLabel(String(format: L("移除 %@"), url.lastPathComponent))
@@ -628,10 +672,10 @@ final class ItemRowView: NSView, NSDraggingSource {
             iconView.image = NSImage(systemSymbolName: "text.quote", accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
             iconView.contentTintColor = .white
-            let oneLine = text.replacingOccurrences(of: "\n", with: " ")
+            let oneLine = String(text.prefix(512)).replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespaces)
             nameLabel.stringValue = oneLine.isEmpty ? L("(空白)") : oneLine
-            nameLabel.toolTip = text
+            nameLabel.toolTip = String(text.prefix(2048))
             removeButton.setAccessibilityLabel(L("移除文本"))
         }
         iconView.imageScaling = .scaleProportionallyDown
@@ -661,7 +705,7 @@ final class ItemRowView: NSView, NSDraggingSource {
 
     override func layout() {
         super.layout()
-        iconView.frame = NSRect(x: 12, y: (bounds.height - 26) / 2, width: 26, height: 26)
+        iconView.frame = NSRect(x: 8, y: (bounds.height - 34) / 2, width: 34, height: 34)
         nameLabel.frame = NSRect(x: 46, y: (bounds.height - 18) / 2,
                                  width: bounds.width - 46 - 34, height: 18)
         removeButton.frame = NSRect(x: bounds.width - 28, y: (bounds.height - 18) / 2,
@@ -746,9 +790,11 @@ final class ItemRowView: NSView, NSDraggingSource {
         downLocation = convert(event.locationInWindow, from: nil)
         onMouseDownRequest?(event)
         if event.clickCount == 2 {
-            // 文件双击 = 在访达中显示；文本双击 = 复制到剪贴板
+            // Saved screenshots open directly; other files retain Finder reveal.
             if item.isText {
                 onCopyText?()
+            } else if let url = item.url, ManagedClipboardImages.owns(url) {
+                onOpen?()
             } else {
                 onReveal?()
             }

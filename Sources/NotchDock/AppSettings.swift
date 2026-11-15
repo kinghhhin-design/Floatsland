@@ -135,6 +135,17 @@ final class AppSettings {
         set { defaults.set(newValue, forKey: Key.removeAfterDragOut); notify() }
     }
 
+    /// Automatically save new clipboard images locally and add them to the shelf.
+    var captureClipboardImages: Bool {
+        get { defaults.object(forKey: "captureClipboardImages") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "captureClipboardImages"); notify() }
+    }
+
+    var captureClipboardText: Bool {
+        get { defaults.object(forKey: "captureClipboardText") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "captureClipboardText"); notify() }
+    }
+
     private func notify() {
         NotificationCenter.default.post(name: .settingsChanged, object: self)
     }

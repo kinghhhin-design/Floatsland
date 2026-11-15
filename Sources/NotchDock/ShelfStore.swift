@@ -32,28 +32,33 @@ final class ShelfStore {
 
     private let defaultsKey = "shelfItems"
 
-    init() {
+    private let defaults: UserDefaults
+    private let newestFirstKey = "shelfNewestFirst"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         load()
     }
 
     /// 加入文件，返回实际新增数量（自动去重、忽略已不存在的文件）。
     @discardableResult
     func add(urls: [URL]) -> Int {
-        var added = 0
-        let existing = Set(items.compactMap { $0.url }.map { $0.standardizedFileURL.path })
+        var additions: [Item] = []
+        var existing = Set(items.compactMap { $0.url }.map { $0.standardizedFileURL.path })
         for url in urls {
             let std = url.standardizedFileURL
             let path = std.path
             guard !existing.contains(path) else { continue }
             guard FileManager.default.fileExists(atPath: path) else { continue }
-            items.append(Item(id: UUID(), kind: .file(std)))
-            added += 1
+            additions.append(Item(id: UUID(), kind: .file(std)))
+            existing.insert(path)
         }
-        if added > 0 {
+        if !additions.isEmpty {
+            items.insert(contentsOf: additions, at: 0)
             save()
             onChange?()
         }
-        return added
+        return additions.count
     }
 
     /// 加入文本片段，返回实际新增数量（空文本忽略、完全相同文本去重）。
@@ -62,24 +67,34 @@ final class ShelfStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return 0 }
         guard !items.contains(where: { $0.text == text }) else { return 0 }
-        items.append(Item(id: UUID(), kind: .text(text)))
+        items.insert(Item(id: UUID(), kind: .text(text)), at: 0)
         save()
         onChange?()
         return 1
     }
 
-    func remove(id: UUID) {
-        let before = items.count
-        items.removeAll { $0.id == id }
-        if items.count != before {
-            save()
-            onChange?()
+    private func trashManagedImage(for item: Item) -> Bool {
+        guard let url = item.url else { return true }
+        do {
+            try ManagedClipboardImages.trashIfOwned(url)
+            return true
+        } catch {
+            NSLog("Floatsland: could not remove saved screenshot: %@", error.localizedDescription)
+            NSSound.beep()
+            return false
         }
+    }
+
+    func remove(id: UUID) {
+        guard let item = items.first(where: { $0.id == id }), trashManagedImage(for: item) else { return }
+        items.removeAll { $0.id == id }
+        save()
+        onChange?()
     }
 
     func clear() {
         guard !items.isEmpty else { return }
-        items.removeAll()
+        items = items.filter { !trashManagedImage(for: $0) }
         save()
         onChange?()
     }
@@ -106,11 +121,12 @@ final class ShelfStore {
             case .text(let text): return "T:" + text
             }
         }
-        UserDefaults.standard.set(encoded, forKey: defaultsKey)
+        defaults.set(encoded, forKey: defaultsKey)
+        defaults.set(true, forKey: newestFirstKey)
     }
 
     private func load() {
-        guard let raw = UserDefaults.standard.array(forKey: defaultsKey) as? [String] else { return }
+        guard let raw = defaults.array(forKey: defaultsKey) as? [String] else { return }
         var restored: [Item] = []
         var seenFiles = Set<String>()
         for entry in raw {
@@ -132,6 +148,12 @@ final class ShelfStore {
                 restored.append(Item(id: UUID(), kind: .file(std)))
             }
         }
-        items = restored
+        if defaults.bool(forKey: newestFirstKey) {
+            items = restored
+        } else {
+            // Earlier versions persisted oldest first. Migrate once, including existing entries.
+            items = Array(restored.reversed())
+            save()
+        }
     }
 }

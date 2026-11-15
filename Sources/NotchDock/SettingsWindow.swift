@@ -85,6 +85,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var screensCheck: NSButton!
     private var loginCheck: NSButton!
     private var removeCheck: NSButton!
+    private var clipboardCheck: NSButton!
+    private var clipboardTextCheck: NSButton!
 
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 800),
@@ -287,6 +289,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                                 target: self, action: #selector(screensChanged(_:)))
         stack.addArrangedSubview(screensCheck)
 
+        clipboardCheck = NSButton(checkboxWithTitle: L("自动暂存剪贴板图片（含截图）"),
+                                  target: self, action: #selector(clipboardChanged(_:)))
+        clipboardCheck.toolTip = L("只读取新图片，不改写剪贴板；图片保存在本机。")
+        stack.addArrangedSubview(clipboardCheck)
+
+        clipboardTextCheck = NSButton(checkboxWithTitle: L("自动暂存复制的文字"),
+                                      target: self, action: #selector(clipboardTextChanged(_:)))
+        stack.addArrangedSubview(clipboardTextCheck)
+
         loginCheck = NSButton(checkboxWithTitle: L("开机自动启动"),
                               target: self, action: #selector(loginChanged(_:)))
         stack.addArrangedSubview(loginCheck)
@@ -438,6 +449,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         settings.showOnAllScreens = sender.state == .on
     }
 
+    @objc private func clipboardTextChanged(_ sender: NSButton) {
+        settings.captureClipboardText = sender.state == .on
+    }
+
+    @objc private func clipboardChanged(_ sender: NSButton) {
+        settings.captureClipboardImages = sender.state == .on
+    }
+
     @objc private func loginChanged(_ sender: NSButton) {
         do {
             if SMAppService.mainApp.status == .enabled {
@@ -501,6 +520,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         panelHSlider.doubleValue = settings.panelHeight
         previewCheck.state = settings.previewZone ? .on : .off
         screensCheck.state = settings.showOnAllScreens ? .on : .off
+        clipboardTextCheck.state = settings.captureClipboardText ? .on : .off
+        clipboardCheck.state = settings.captureClipboardImages ? .on : .off
         loginCheck.state = settings.launchAtLogin ? .on : .off
         removeCheck.state = settings.removeAfterDragOut ? .on : .off
         mergeZoneCheck.state = settings.mergeZoneWithIsland ? .on : .off

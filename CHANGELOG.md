@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0
+
+- Automatically capture newly copied text and clipboard images with separate settings in all five languages.
+- Show screenshot thumbnails and open saved screenshots directly on double-click.
+- Move owned screenshots to Trash when removed or cleared; keep entries if trashing fails, and protect external originals.
+- Show newest additions first and migrate existing saved order once.
+- Virtualize the shelf list, reuse rows during window resizing, and bound long-text previews without truncating stored text.
+- Consolidates the local 2.2.x development builds into the public 2.2.0 release.
+
 ## 2.1.5
 
 - Center the primary drag preview on the pointer hotspot (arrow tip), removing the lower-right offset. Other behavior is unchanged.

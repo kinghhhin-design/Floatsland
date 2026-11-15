@@ -9,6 +9,8 @@ final class IslandManager {
 
     private var controllers: [NSNumber: IslandPanelController] = [:]
     private let tracker = MouseTracker()
+    private lazy var clipboardImages = ClipboardImageMonitor(store: shelf)
+    private lazy var clipboardText = ClipboardTextMonitor(store: shelf)
     private let previewWindow = ZonePreviewWindow()
     private var dropActive = false
     private var manuallyCollapsed = Set<NSNumber>()
@@ -54,6 +56,8 @@ final class IslandManager {
             self?.controllers.values.contains { $0.panel.isVisible && $0.panel.frame.contains(point) } ?? false
         }
         tracker.start()
+        clipboardImages.start()
+        clipboardText.start()
         installOutsideClickMonitors()
         if settings.islandVisible {
             showAll()
@@ -97,6 +101,8 @@ final class IslandManager {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         collapseWorkItem?.cancel()
         tracker.stop()
+        clipboardImages.stop()
+        clipboardText.stop()
     }
 
     // MARK: - 面板管理
