@@ -45,6 +45,10 @@ enum Localization {
         catalog[key]?[(language ?? self.language).column] ?? key
     }
     static let catalog: [String: [String]] = [
+        "展开动画时长": ["展开动画时长", "展開動畫時長", "Expand duration", "展開アニメーション時間", "펼치기 애니메이션 시간"],
+        "收起动画时长": ["收起动画时长", "收合動畫時長", "Collapse duration", "収納アニメーション時間", "접기 애니메이션 시간"],
+        "%.2f 秒": ["%.2f 秒", "%.2f 秒", "%.2f s", "%.2f 秒", "%.2f초"],
+        "数值越大动画越慢，下次展开或收起时生效；不影响自动收起延迟。": ["数值越大动画越慢，下次展开或收起时生效；不影响自动收起延迟。", "數值越大動畫越慢，下次展開或收合時生效；不影響自動收合延遲。", "Higher values slow the animation. Applies on the next transition; collapse delay is unchanged.", "値が大きいほどゆっくり動きます。次の開閉から適用され、自動収納までの待ち時間は変わりません。", "값이 클수록 애니메이션이 느려집니다. 다음 펼치기·접기부터 적용되며 자동 접기 지연 시간은 바뀌지 않습니다."],
         "自动暂存复制的文字": ["自动暂存复制的文字", "自動暫存複製的文字", "Auto-save copied text", "コピーしたテキストを自動保管", "복사한 텍스트 자동 보관"],
         "自动暂存剪贴板图片（含截图）": ["自动暂存剪贴板图片（含截图）", "自動暫存剪貼簿圖片（含截圖）", "Auto-save clipboard images (including screenshots)", "クリップボード画像を自動保管（スクリーンショットを含む）", "클립보드 이미지 자동 보관 (스크린샷 포함)"],
         "只读取新图片，不改写剪贴板；图片保存在本机。": ["只读取新图片，不改写剪贴板；图片保存在本机。", "僅讀取新圖片，不改寫剪貼簿；圖片儲存在本機。", "Reads new images without changing the clipboard. Images stay on this Mac.", "新しい画像のみ読み取り、クリップボードは変更しません。画像はこのMacに保存されます。", "새 이미지만 읽고 클립보드는 변경하지 않습니다. 이미지는 이 Mac에 저장됩니다."],

@@ -15,6 +15,8 @@ final class IslandRootView: NSView {
     let expandedView = ExpandedView()
 
     private var expanded = false
+    private var transitionContentSize: NSSize?
+    private var transitionScreenFrame: NSRect?
 
     var shelfCount: Int = 0 {
         didSet { pillView.count = shelfCount }
@@ -55,43 +57,72 @@ final class IslandRootView: NSView {
     override func layout() {
         super.layout()
         pillView.frame = bounds
-        expandedView.frame = bounds
+        if let screenFrame = transitionScreenFrame, let window {
+            let local = convert(window.convertFromScreen(screenFrame), from: nil)
+            expandedView.frame = local
+        } else if let size = transitionContentSize {
+            // Keep the list at its final size while the outer silhouette clips it.
+            // Resizing its scroll viewport every frame recreates rows and thumbnails.
+            expandedView.frame = NSRect(x: (bounds.width - size.width) / 2,
+                                        y: bounds.height - size.height,
+                                        width: size.width, height: size.height)
+        } else {
+            expandedView.frame = bounds
+        }
+    }
+
+    func prepareTransition(contentSize: NSSize, screenFrame: NSRect? = nil) {
+        // A first drop creates new row layers. Finish their layout and drawing
+        // before starting the animation clock, not during its first frames.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        transitionScreenFrame = screenFrame
+        transitionContentSize = contentSize
+        needsLayout = true
+        expandedView.needsLayout = true
+        layoutSubtreeIfNeeded()
+        expandedView.layoutSubtreeIfNeeded()
+        expandedView.displayIfNeeded()
+        CATransaction.commit()
     }
 
     func setExpanded(_ flag: Bool) {
         expanded = flag
-        if flag {
-            expandedView.isHidden = false
-        } else {
-            pillView.isHidden = false
-        }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.22
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
-            pillView.animator().alphaValue = flag ? 0 : 1
-            expandedView.animator().alphaValue = flag ? 1 : 0
-        }, completionHandler: { [weak self] in
-            guard let self, self.expanded == flag else { return }
-            self.pillView.isHidden = flag
-            self.expandedView.isHidden = !flag
-        })
+        pillView.isHidden = false
+        expandedView.isHidden = false
     }
 
-    /// 设置圆角；squareTop = true 时上方两个角为直角（展开面板贴屏幕顶部）。
-    func setCornerRadius(_ r: CGFloat, animated: Bool, squareTop: Bool) {
-        guard let layer else { return }
-        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            let anim = CABasicAnimation(keyPath: "cornerRadius")
-            anim.fromValue = layer.cornerRadius
-            anim.toValue = r
-            anim.duration = 0.32
-            anim.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
-            layer.add(anim, forKey: "cornerRadius")
-        }
-        layer.cornerRadius = r
-        layer.maskedCorners = squareTop
+    /// Geometry, opacity and corners share the controller's animation clock.
+    func applyTransition(opacity: CGFloat, cornerRadius: CGFloat, squareTop: Bool,
+                         finished: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pillView.alphaValue = 1 - opacity
+        expandedView.alphaValue = opacity
+        // Scale composited content, not fonts or row frames, to avoid relayout.
+        // Finish the small zoom early; the final fade must not move text.
+        // Smoothly approach identity before the animation completion switches layout.
+        let zoomProgress = min(1, max(0, opacity / 0.75))
+        let zoom = 1 - pow(1 - zoomProgress, 3)
+        let scale: CGFloat = finished || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? 1 : 0.96 + 0.04 * zoom
+        let anchor = CGPoint(x: expandedView.bounds.midX, y: expandedView.bounds.maxY)
+        var transform = CATransform3DMakeTranslation(anchor.x, anchor.y, 0)
+        transform = CATransform3DScale(transform, scale, scale, 1)
+        transform = CATransform3DTranslate(transform, -anchor.x, -anchor.y, 0)
+        expandedView.layer?.sublayerTransform = transform
+        layer?.cornerRadius = cornerRadius
+        layer?.maskedCorners = squareTop
             ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        CATransaction.commit()
+        if finished {
+            transitionScreenFrame = nil
+            transitionContentSize = nil
+            needsLayout = true
+            pillView.isHidden = expanded
+            expandedView.isHidden = !expanded
+        }
     }
 
     func reload() {
@@ -265,6 +296,7 @@ final class ExpandedView: NSView {
     private var rows: [UUID: ItemRowView] = [:]
     private var observingScroll: NSObjectProtocol?
     private var updatingRows = false
+    private var layingOutViewport = false
     private var lastListWidth: CGFloat = 0
     private var confirmationReset: DispatchWorkItem?
 
@@ -331,6 +363,12 @@ final class ExpandedView: NSView {
         addSubview(hintLabel)
 
         scrollView.drawsBackground = false
+        // Clip newly created backing layers from the first frame, including
+        // while the parent content is fading/scaling during a transition.
+        scrollView.wantsLayer = true
+        scrollView.layer?.masksToBounds = true
+        scrollView.contentView.wantsLayer = true
+        scrollView.contentView.layer?.masksToBounds = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -388,6 +426,7 @@ final class ExpandedView: NSView {
 
         hintLabel.frame = NSRect(x: 12, y: 6, width: W - 24, height: 14)
 
+        layingOutViewport = true
         scrollView.frame = NSRect(x: 6, y: 48, width: W - 12, height: max(0, dividerY - 48 - 6))
 
         emptyState.frame = scrollView.frame
@@ -396,6 +435,7 @@ final class ExpandedView: NSView {
         if abs(w - lastListWidth) > 0.5 || listContainer.frame.height != max(CGFloat(items.count) * rowHeight, scrollView.contentSize.height) {
             updateListGeometry()
         }
+        layingOutViewport = false
         updateVisibleRows()
     }
 
@@ -420,6 +460,12 @@ final class ExpandedView: NSView {
     }
 
     private func rebuildRows() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        // Resolve the empty-to-list state before sizing the first viewport.
+        emptyState.isHidden = !items.isEmpty
+        scrollView.isHidden = items.isEmpty
         let ids = Set(items.map(\.id))
         selection.formIntersection(ids)
         selectionAnchor = nil
@@ -429,8 +475,7 @@ final class ExpandedView: NSView {
         }
         updateListGeometry()
         updateVisibleRows()
-        emptyState.isHidden = !items.isEmpty
-        scrollView.isHidden = items.isEmpty
+        needsLayout = true
         countLabel.stringValue = items.isEmpty ? "" : String(format: L("%d 项"), items.count)
         clearButton.isEnabled = !items.isEmpty
         selectAllButton.isEnabled = !items.isEmpty
@@ -441,6 +486,9 @@ final class ExpandedView: NSView {
     }
 
     private func updateListGeometry() {
+        let wasLayingOut = layingOutViewport
+        layingOutViewport = true
+        defer { layingOutViewport = wasLayingOut }
         lastListWidth = scrollView.contentSize.width
         listContainer.frame = NSRect(x: 0, y: 0, width: max(lastListWidth, 1),
             height: max(CGFloat(items.count) * rowHeight, scrollView.contentSize.height))
@@ -448,7 +496,7 @@ final class ExpandedView: NSView {
 
     // Keep only the viewport plus two buffer rows on each side alive.
     private func updateVisibleRows() {
-        guard !updatingRows else { return }
+        guard !updatingRows, !layingOutViewport else { return }
         updatingRows = true
         defer { updatingRows = false }
         let visible = scrollView.contentView.bounds
@@ -622,7 +670,7 @@ final class ExpandedView: NSView {
     @objc private func ctxClear() { onClear?() }
 }
 
-// MARK: - 暂存条目行（支持拖出、双击定位、移除）
+// MARK: - 暂存条目行（支持拖出、双击打开、移除）
 
 final class ItemRowView: NSView, NSDraggingSource {
     let item: ShelfStore.Item
@@ -790,13 +838,11 @@ final class ItemRowView: NSView, NSDraggingSource {
         downLocation = convert(event.locationInWindow, from: nil)
         onMouseDownRequest?(event)
         if event.clickCount == 2 {
-            // Saved screenshots open directly; other files retain Finder reveal.
+            // Open file references with their default app; text still copies.
             if item.isText {
                 onCopyText?()
-            } else if let url = item.url, ManagedClipboardImages.owns(url) {
-                onOpen?()
             } else {
-                onReveal?()
+                onOpen?()
             }
         }
     }

@@ -25,7 +25,7 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     private(set) var screenNumber: NSNumber
     private(set) var isExpanded = false
     private(set) var isHovered = false
-    private var transitionTimer: Timer?
+    private var transitionTimer: AnimationClock?
 
     init(screen: NSScreen) {
         screenNumber = IslandMetrics.screenNumber(screen)
@@ -155,29 +155,71 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         transitionTimer?.invalidate()
         let start = panel.frame
         let end = frameForCurrentScreen(expanded: expanded)
+        let startOpacity = rootView.expandedView.alphaValue
+        let endOpacity: CGFloat = expanded ? 1 : 0
+        let startCorner = rootView.layer?.cornerRadius ?? IslandMetrics.collapsedCorner
+        let endCorner = expanded ? IslandMetrics.expandedCorner : IslandMetrics.collapsedCorner
+        let squareTop = touchesScreenTop(end)
         rootView.setExpanded(expanded)
-        rootView.setCornerRadius(expanded ? IslandMetrics.expandedCorner : IslandMetrics.collapsedCorner,
-                                 animated: animated, squareTop: touchesScreenTop(end))
+        let contentFrame = frameForCurrentScreen(expanded: true)
+        rootView.prepareTransition(contentSize: contentFrame.size, screenFrame: contentFrame)
+        let backingScale = currentScreen()?.backingScaleFactor ?? 2
+        let apply: (CGFloat, CGFloat, Bool) -> Void = { [weak self] progress, opacityProgress, finished in
+            guard let self else { return }
+            let interpolated = NSRect(x: start.minX + (end.minX - start.minX) * progress,
+                               y: start.minY + (end.minY - start.minY) * progress,
+                               width: start.width + (end.width - start.width) * progress,
+                               height: start.height + (end.height - start.height) * progress)
+            // Commit window geometry, content positioning and visual state together.
+            // Drawing before repositioning content can expose a stale text position.
+            func pixel(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
+            let frame = NSRect(x: pixel(interpolated.minX), y: pixel(interpolated.minY),
+                               width: pixel(interpolated.maxX) - pixel(interpolated.minX),
+                               height: pixel(interpolated.maxY) - pixel(interpolated.minY))
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if self.panel.frame != frame {
+                self.panel.setFrame(frame, display: false)
+                self.rootView.needsLayout = true
+                self.rootView.layoutSubtreeIfNeeded()
+            }
+            self.rootView.applyTransition(
+                opacity: startOpacity + (endOpacity - startOpacity) * opacityProgress,
+                cornerRadius: startCorner + (endCorner - startCorner) * progress,
+                squareTop: squareTop, finished: finished)
+            self.rootView.layoutSubtreeIfNeeded()
+            self.rootView.displayIfNeeded()
+            CATransaction.commit()
+        }
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            panel.setFrame(end, display: true)
+            transitionTimer = nil
+            apply(1, 1, true)
             return
         }
         let began = ProcessInfo.processInfo.systemUptime
-        let duration = expanded ? 0.40 : 0.32
-        let fps = max(60, min(currentScreen()?.maximumFramesPerSecond ?? 60, 120))
-        let timer = Timer(timeInterval: 1.0 / Double(fps), repeats: true) { [weak self] timer in
-            guard let self else { timer.invalidate(); return }
-            let progress = min(1, (ProcessInfo.processInfo.systemUptime - began) / duration)
-            let eased = 1 - pow(1 - progress, 4)
-            let frame = NSRect(x: start.minX + (end.minX - start.minX) * eased,
-                               y: start.minY + (end.minY - start.minY) * eased,
-                               width: start.width + (end.width - start.width) * eased,
-                               height: start.height + (end.height - start.height) * eased)
-            self.panel.setFrame(frame, display: true)
-            if progress >= 1 { timer.invalidate(); self.transitionTimer = nil }
+        // Overlap the fade with the silhouette animation; the content itself
+        // keeps its full-size layout while its composited layers gently scale in.
+        let configuredDuration = expanded ? AppSettings.shared.expandAnimationDuration
+                                          : AppSettings.shared.collapseAnimationDuration
+        let geometryDuration: Double = start == end ? 0 : configuredDuration * (expanded ? 0.80 : 1)
+        let fadeDuration: Double = abs(endOpacity - startOpacity) < 0.001 ? 0 : configuredDuration * (expanded ? 1 : 0.75)
+        let duration = max(geometryDuration, fadeDuration)
+        func phase(_ elapsed: Double, length: Double) -> Double {
+            length > 0 ? min(1, max(0, elapsed / length)) : 1
         }
-        transitionTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        transitionTimer = AnimationClock(displayID: screenNumber.uint32Value,
+                                         fallbackFPS: currentScreen()?.maximumFramesPerSecond ?? 60) { [weak self] in
+            guard let self else { return }
+            let elapsed = ProcessInfo.processInfo.systemUptime - began
+            let geometry = IslandAnimationCurve.geometry(phase(elapsed, length: geometryDuration))
+            let opacity = IslandAnimationCurve.opacity(phase(elapsed, length: fadeDuration))
+            let finished = elapsed >= duration
+            apply(geometry, opacity, finished)
+            if finished {
+                self.transitionTimer?.invalidate()
+                self.transitionTimer = nil
+            }
+        }
     }
 
     func showDropConfirmation() {
@@ -195,6 +237,19 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         return expanded ? IslandMetrics.expandedFrame(for: screen) : IslandMetrics.pillFrame(for: screen)
     }
 
+    /// Use stable interaction bounds as well as the animated window, including
+    /// screen-top edges that NSRect.contains otherwise treats as outside.
+    func containsPointer(_ point: NSPoint) -> Bool {
+        guard panel.isVisible else { return false }
+        var regions = [panel.frame, frameForCurrentScreen(expanded: false)]
+        if isExpanded { regions.append(frameForCurrentScreen(expanded: true)) }
+        let tolerance = 1 / (currentScreen()?.backingScaleFactor ?? 2)
+        return regions.contains { rect in
+            point.x >= rect.minX - tolerance && point.x <= rect.maxX + tolerance &&
+            point.y >= rect.minY - tolerance && point.y <= rect.maxY + tolerance
+        }
+    }
+
     private func touchesScreenTop(_ frame: NSRect) -> Bool {
         guard let screen = currentScreen() else { return false }
         return frame.maxY >= screen.frame.maxY - 0.5
@@ -204,10 +259,9 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         transitionTimer?.invalidate()
         transitionTimer = nil
         panel.setFrame(frameForCurrentScreen(expanded: isExpanded), display: true)
-        // 尺寸设置变化时同步更新圆角
-        rootView.setCornerRadius(isExpanded ? IslandMetrics.expandedCorner : IslandMetrics.collapsedCorner,
-                                 animated: false,
-                                 squareTop: touchesScreenTop(panel.frame))
+        rootView.applyTransition(opacity: isExpanded ? 1 : 0,
+                                 cornerRadius: isExpanded ? IslandMetrics.expandedCorner : IslandMetrics.collapsedCorner,
+                                 squareTop: touchesScreenTop(panel.frame), finished: true)
     }
 
     func showPanel() {

@@ -2,6 +2,25 @@
 
 ## 2.2.1
 
+- 修复了已知的问题
+
+- Prepare newly added rows and their first drawing before starting transitions, update empty/list visibility before sizing the viewport, clip row layers explicitly, and defer visible-row updates until viewport geometry is consistent.
+
+- Settle content scaling and panel geometry before the final fade so text stays still at the end of expansion.
+
+- Pace transitions with the display refresh using a coalescing display link, and use a damped geometry curve with a soft, non-bouncing finish.
+
+- Add separate persistent expand/collapse animation duration sliders (0.10–1.50 seconds) in all five languages, preserving current default timing.
+
+- Preserve hover protection over the capsule and expanded panel throughout animation, including screen-top edges.
+
+- Keep the shelf viewport at its expanded size during transitions to avoid repeated row layout and thumbnail creation while resizing.
+
+- Fade content concurrently with expansion using a soft easing curve; gently scale composited content from 96% to full size without laying out text again. Align window edges to display pixels and update content before drawing to reduce transition jitter.
+
+- Open all shelf files in their default app on double-click; keep Finder reveal in the context menu.
+- Preserve reference-only removal for ordinary files and Trash handling for owned screenshots.
+
 - Keep narrow side gutters available for marquee selection when the list is full.
 - Automatically scroll at the top and bottom edges during marquee selection, including while the pointer is stationary.
 - Preserve file drag-out behavior and stop scrolling when the selection gesture ends.

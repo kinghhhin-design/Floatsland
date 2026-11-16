@@ -58,6 +58,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private var modePopup: NSPopUpButton!
     private var languagePopup: NSPopUpButton!
+    private var expandAnimationSlider: NSSlider!
+    private var expandAnimationLabel: NSTextField!
+    private var collapseAnimationSlider: NSSlider!
+    private var collapseAnimationLabel: NSTextField!
     private var collapseDelaySlider: NSSlider!
     private var collapseDelayLabel: NSTextField!
     private var heightSlider: NSSlider!
@@ -175,6 +179,27 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         collapseDelaySlider.action = #selector(collapseDelayChanged(_:))
         collapseDelayLabel = valueLabel()
         stack.addArrangedSubview(labeledRow(rowLabel(L("自动收起延迟")), collapseDelaySlider, collapseDelayLabel))
+
+        expandAnimationSlider = makeSlider(min: AppSettings.animationDurationRange.lowerBound,
+                                          max: AppSettings.animationDurationRange.upperBound)
+        expandAnimationSlider.target = self
+        expandAnimationSlider.action = #selector(animationDurationChanged(_:))
+        expandAnimationSlider.setAccessibilityLabel(L("展开动画时长"))
+        expandAnimationLabel = valueLabel()
+        stack.addArrangedSubview(labeledRow(rowLabel(L("展开动画时长")), expandAnimationSlider, expandAnimationLabel))
+
+        collapseAnimationSlider = makeSlider(min: AppSettings.animationDurationRange.lowerBound,
+                                            max: AppSettings.animationDurationRange.upperBound)
+        collapseAnimationSlider.target = self
+        collapseAnimationSlider.action = #selector(animationDurationChanged(_:))
+        collapseAnimationSlider.setAccessibilityLabel(L("收起动画时长"))
+        collapseAnimationLabel = valueLabel()
+        stack.addArrangedSubview(labeledRow(rowLabel(L("收起动画时长")), collapseAnimationSlider, collapseAnimationLabel))
+        let animationHint = NSTextField(wrappingLabelWithString: L("数值越大动画越慢，下次展开或收起时生效；不影响自动收起延迟。"))
+        animationHint.font = .systemFont(ofSize: 11)
+        animationHint.textColor = .secondaryLabelColor
+        animationHint.widthAnchor.constraint(lessThanOrEqualToConstant: 560).isActive = true
+        stack.addArrangedSubview(animationHint)
 
         // 感应区域标题
         let zoneTitle = NSTextField(labelWithString: L("感应区域（触发放大的范围与位置，实时生效）"))
@@ -373,6 +398,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         updateLabels()
     }
 
+    @objc private func animationDurationChanged(_ sender: NSSlider) {
+        sender.doubleValue = (sender.doubleValue * 100).rounded() / 100
+        if sender === expandAnimationSlider {
+            settings.expandAnimationDuration = sender.doubleValue
+        } else {
+            settings.collapseAnimationDuration = sender.doubleValue
+        }
+        updateLabels()
+    }
+
     @objc private func heightChanged(_ sender: NSSlider) {
         settings.zoneHeight = sender.doubleValue
         updateLabels()
@@ -480,6 +515,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateLabels() {
+        expandAnimationLabel.stringValue = String(format: L("%.2f 秒"), expandAnimationSlider.doubleValue)
+        collapseAnimationLabel.stringValue = String(format: L("%.2f 秒"), collapseAnimationSlider.doubleValue)
         collapseDelayLabel.stringValue = String(format: L("%.1f 秒"), collapseDelaySlider.doubleValue)
         heightLabel.stringValue = "\(Int(heightSlider.doubleValue)) pt"
         widthLabel.stringValue = "\(Int(widthSlider.doubleValue)) pt"
@@ -507,6 +544,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private func loadValues() {
         languagePopup.selectItem(at: AppLanguage.allCases.firstIndex(of: Localization.language) ?? 1)
         modePopup.selectItem(at: max(0, min(2, settings.expandMode)))
+        expandAnimationSlider.doubleValue = settings.expandAnimationDuration
+        collapseAnimationSlider.doubleValue = settings.collapseAnimationDuration
         collapseDelaySlider.doubleValue = settings.collapseDelay
         heightSlider.doubleValue = settings.zoneHeight
         widthSlider.doubleValue = settings.zoneHalfWidth * 2

@@ -4,7 +4,31 @@ import Foundation
 final class AppSettings {
     static let shared = AppSettings()
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    static let animationDurationRange = 0.10...1.50
+
+    private func animationDuration(_ key: String, fallback: Double) -> Double {
+        let value = defaults.object(forKey: key) as? Double ?? fallback
+        return value.isFinite ? min(1.50, max(0.10, value)) : fallback
+    }
+
+    // Read at the next transition; changing timing must not reposition the panel.
+    var expandAnimationDuration: Double {
+        get { animationDuration("expandAnimationDuration", fallback: 0.34) }
+        set { defaults.set(newValue.isFinite ? min(1.50, max(0.10, newValue)) : 0.34,
+                           forKey: "expandAnimationDuration") }
+    }
+
+    var collapseAnimationDuration: Double {
+        get { animationDuration("collapseAnimationDuration", fallback: 0.24) }
+        set { defaults.set(newValue.isFinite ? min(1.50, max(0.10, newValue)) : 0.24,
+                           forKey: "collapseAnimationDuration") }
+    }
 
     private enum Key {
         static let showOnAllScreens = "showOnAllScreens"

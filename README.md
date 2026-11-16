@@ -27,7 +27,7 @@ Download **Floatsland-2.2.1-macos-arm64.zip** from [Releases](https://github.com
 - Traditional Chinese, Simplified Chinese, English, Japanese and Korean; switch in Settings → Language.
 - Stored items and language choice persist across launches.
 - Automatically save newly copied text and clipboard screenshots/images, with independent switches in Settings (enabled by default).
-- Screenshot thumbnails; double-click saved screenshots to open them in the default image app.
+- Screenshot thumbnails; double-click any file to open it in its default app. Finder reveal remains available in the context menu.
 - Newest additions appear first, including a one-time migration of existing shelf order.
 - Only visible list rows are loaded; resizing animations reuse rows instead of rebuilding the entire shelf.
 
@@ -35,7 +35,7 @@ Download **Floatsland-2.2.1-macos-arm64.zip** from [Releases](https://github.com
 
 Copy text or take a screenshot to the clipboard while Floatsland is running; it is added automatically without rewriting the clipboard. Clipboard contents present before launch are not imported. Blank text is ignored and identical text is deduplicated. Clipboard images are saved as PNG files in `~/Library/Application Support/Floatsland/ClipboardImages`.
 
-运行时复制文字，或将截图保存到剪贴板，即可自动暂存；设置中可分别关闭文字和图片自动暂存。截图显示缩略图，双击可用默认图片应用打开。新加入的内容排在最上方。
+运行时复制文字，或将截图保存到剪贴板，即可自动暂存；设置中可分别关闭文字和图片自动暂存。截图显示缩略图；双击任意文件（包括 Word、PPT 和截图）可用系统默认应用打开，右键仍可选择“在访达中显示”。新加入的内容排在最上方。
 
 Removing an automatically saved screenshot, or clearing the shelf, moves that screenshot to **Trash**. It remains recoverable and uses disk space until Trash is emptied. If moving it fails, the shelf entry is kept. Ordinary file references never delete or trash the original.
 
@@ -63,3 +63,5 @@ Notch geometry and available workspace are queried at runtime. Every display sca
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+设置中的“展开动画时长”和“收起动画时长”可分别调整为 0.10–1.50 秒，默认分别为 0.34 秒和 0.24 秒。修改自动保存，下次动画生效，与“自动收起延迟”独立。

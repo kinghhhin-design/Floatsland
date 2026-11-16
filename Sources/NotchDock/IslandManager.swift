@@ -53,7 +53,7 @@ final class IslandManager {
         rebuildPanels()
         tracker.onStateChange = { [weak self] state in self?.zoneStateChanged(state) }
         tracker.containsPanel = { [weak self] point in
-            self?.controllers.values.contains { $0.panel.isVisible && $0.panel.frame.contains(point) } ?? false
+            self?.controllers.values.contains { $0.containsPointer(point) } ?? false
         }
         tracker.start()
         clipboardImages.start()
@@ -86,7 +86,7 @@ final class IslandManager {
 
     private func dismissForOutsideClick(at point: NSPoint) {
         guard outDragSessions == 0,
-              !controllers.values.contains(where: { $0.panel.isVisible && $0.panel.frame.contains(point) }) else { return }
+              !controllers.values.contains(where: { $0.containsPointer(point) }) else { return }
         cancelPendingCollapse()
         dropActive = false
         for controller in controllers.values where controller.isExpanded {
@@ -294,7 +294,7 @@ final class IslandManager {
         guard outDragSessions == 0, !dropActive else { return false }
         let mouse = NSEvent.mouseLocation
         if NSScreen.screens.contains(where: { IslandMetrics.zoneRect(for: $0).contains(mouse) }) { return false }
-        if controllers.values.contains(where: { $0.panel.isVisible && $0.panel.frame.contains(mouse) }) { return false }
+        if controllers.values.contains(where: { $0.containsPointer(mouse) }) { return false }
         return true
     }
 
