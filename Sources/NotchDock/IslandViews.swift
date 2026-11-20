@@ -14,12 +14,16 @@ final class IslandRootView: NSView {
     let pillView = PillView()
     let expandedView = ExpandedView()
 
+    private let transitionImage = TransitionImageView()
     private var expanded = false
     private var transitionContentSize: NSSize?
     private var transitionScreenFrame: NSRect?
 
     var shelfCount: Int = 0 {
-        didSet { pillView.count = shelfCount }
+        didSet {
+            pillView.count = shelfCount
+            expandedView.updateCountReminder(shelfCount)
+        }
     }
     var shelfItems: [ShelfStore.Item] = [] {
         didSet { expandedView.items = shelfItems }
@@ -40,6 +44,10 @@ final class IslandRootView: NSView {
         expandedView.frame = bounds
         addSubview(pillView)
         addSubview(expandedView)
+        transitionImage.wantsLayer = true
+        transitionImage.layer?.contentsGravity = .resizeAspect
+        transitionImage.isHidden = true
+        addSubview(transitionImage)
         expandedView.alphaValue = 0
         expandedView.isHidden = true
 
@@ -57,6 +65,7 @@ final class IslandRootView: NSView {
     override func layout() {
         super.layout()
         pillView.frame = bounds
+        positionTransitionImage()
         if let screenFrame = transitionScreenFrame, let window {
             let local = convert(window.convertFromScreen(screenFrame), from: nil)
             expandedView.frame = local
@@ -71,6 +80,18 @@ final class IslandRootView: NSView {
         }
     }
 
+    private func positionTransitionImage() {
+        guard !expanded, let size = transitionContentSize else {
+            transitionImage.frame = bounds
+            return
+        }
+        // Keep closing content at its native size. The root clips the snapshot
+        // from the sides and bottom while its existing opacity curve fades it.
+        transitionImage.frame = NSRect(x: bounds.midX - size.width / 2,
+                                       y: bounds.maxY - size.height,
+                                       width: size.width, height: size.height)
+    }
+
     func prepareTransition(contentSize: NSSize, screenFrame: NSRect? = nil) {
         // A first drop creates new row layers. Finish their layout and drawing
         // before starting the animation clock, not during its first frames.
@@ -83,11 +104,32 @@ final class IslandRootView: NSView {
         layoutSubtreeIfNeeded()
         expandedView.layoutSubtreeIfNeeded()
         expandedView.displayIfNeeded()
+        expandedView.prepareRowsForTransition()
+        // Capture only our own content at full size, never the desktop.
+        let priorTransform = expandedView.layer?.sublayerTransform ?? CATransform3DIdentity
+        expandedView.layer?.sublayerTransform = CATransform3DIdentity
+        let priorAlpha = expandedView.alphaValue
+        expandedView.alphaValue = 1
+        if let bitmap = expandedView.bitmapImageRepForCachingDisplay(in: expandedView.bounds) {
+            expandedView.cacheDisplay(in: expandedView.bounds, to: bitmap)
+            transitionImage.layer?.contents = bitmap.cgImage
+            positionTransitionImage()
+            transitionImage.alphaValue = priorAlpha
+            transitionImage.isHidden = false
+            expandedView.isHidden = true
+        }
+        expandedView.alphaValue = priorAlpha
+        expandedView.layer?.sublayerTransform = priorTransform
         CATransaction.commit()
     }
 
     func setExpanded(_ flag: Bool) {
         expanded = flag
+        // Transitions always use the original opaque black silhouette.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.opacity = 1
+        CATransaction.commit()
         pillView.isHidden = false
         expandedView.isHidden = false
     }
@@ -97,19 +139,28 @@ final class IslandRootView: NSView {
                          finished: Bool) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        let capsuleOpacity = CGFloat(AppSettings.shared.capsuleOpacity)
+        // Layer-only opacity keeps AppKit hit testing alive at 0%.
+        // Setting NSView.alphaValue to zero would make the invisible capsule unclickable.
+        layer?.opacity = finished && !expanded ? Float(capsuleOpacity) : 1
         pillView.alphaValue = 1 - opacity
         expandedView.alphaValue = opacity
-        // Scale composited content, not fonts or row frames, to avoid relayout.
-        // Finish the small zoom early; the final fade must not move text.
-        // Smoothly approach identity before the animation completion switches layout.
-        let zoomProgress = min(1, max(0, opacity / 0.75))
-        let zoom = 1 - pow(1 - zoomProgress, 3)
-        let scale: CGFloat = finished || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            ? 1 : 0.96 + 0.04 * zoom
-        let anchor = CGPoint(x: expandedView.bounds.midX, y: expandedView.bounds.maxY)
-        var transform = CATransform3DMakeTranslation(anchor.x, anchor.y, 0)
-        transform = CATransform3DScale(transform, scale, scale, 1)
-        transform = CATransform3DTranslate(transform, -anchor.x, -anchor.y, 0)
+        transitionImage.alphaValue = opacity
+        // Use the actual animated silhouette as the content destination.
+        // Opacity has its own timing, but cannot move content ahead of/behind it.
+        let content = expandedView.bounds
+        let destination = expandedView.convert(bounds, from: self)
+        var transform = CATransform3DIdentity
+        if expanded && !finished && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let sx = destination.width / max(content.width, 1)
+            let sy = destination.height / max(content.height, 1)
+            // Preserve glyph/icon proportions even when the silhouette's aspect
+            // ratio changes or WindowServer is restoring other desktop windows.
+            let scale = min(sx, sy)
+            transform = CATransform3DMakeScale(scale, scale, 1)
+            transform.m41 = destination.midX - content.midX * scale
+            transform.m42 = destination.midY - content.midY * scale
+        }
         expandedView.layer?.sublayerTransform = transform
         layer?.cornerRadius = cornerRadius
         layer?.maskedCorners = squareTop
@@ -117,6 +168,9 @@ final class IslandRootView: NSView {
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         CATransaction.commit()
         if finished {
+            transitionImage.isHidden = true
+            transitionImage.layer?.contents = nil
+            expandedView.finishRowTransition()
             transitionScreenFrame = nil
             transitionContentSize = nil
             needsLayout = true
@@ -264,7 +318,7 @@ final class PillView: NSView {
 // MARK: - 展开后的面板
 
 final class ExpandedView: NSView {
-    var onClear: (() -> Void)?
+    var onDeleteSelected: (([UUID]) -> Void)?
     var onCollapseClick: (() -> Void)?
     var onRemoveItem: ((UUID) -> Void)?
     var onRevealItem: ((UUID) -> Void)?
@@ -285,7 +339,7 @@ final class ExpandedView: NSView {
     private let titleIcon = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "Floatsland")
     private let countLabel = NSTextField(labelWithString: "")
-    private let clearButton = NSButton(title: L("清空"), target: nil, action: nil)
+    private let clearButton = NSButton(title: L("删除"), target: nil, action: nil)
     private let selectAllButton = NSButton(title: L("全选"), target: nil, action: nil)
     private let collapseButton = NSButton()
     private let hintLabel = NSTextField(labelWithString: L("拖入暂存  ·  拖出复制  ·  ⌘ 拖出移动"))
@@ -299,8 +353,29 @@ final class ExpandedView: NSView {
     private var layingOutViewport = false
     private var lastListWidth: CGFloat = 0
     private var confirmationReset: DispatchWorkItem?
+    private var countReminderUntil: TimeInterval = 0
+
+    func updateCountReminder(_ count: Int) {
+        guard ProcessInfo.processInfo.systemUptime < countReminderUntil else { return }
+        hintLabel.stringValue = String(format: L("当前已暂存 %d 项"), count)
+    }
+
+    func showCountReminder(_ count: Int) {
+        confirmationReset?.cancel()
+        countReminderUntil = ProcessInfo.processInfo.systemUptime + 5
+        hintLabel.stringValue = String(format: L("当前已暂存 %d 项"), count)
+        hintLabel.textColor = .systemMint
+        let reset = DispatchWorkItem { [weak self] in
+            self?.countReminderUntil = 0
+            self?.hintLabel.stringValue = L("拖入暂存  ·  拖出复制  ·  ⌘ 拖出移动")
+            self?.hintLabel.textColor = NSColor.white.withAlphaComponent(0.38)
+        }
+        confirmationReset = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: reset)
+    }
 
     func showDropConfirmation() {
+        guard ProcessInfo.processInfo.systemUptime >= countReminderUntil else { return }
         confirmationReset?.cancel()
         // Only the existing footer text changes; no layer transform or layout animation.
         hintLabel.stringValue = L("✓ 已暂存")
@@ -337,7 +412,8 @@ final class ExpandedView: NSView {
         clearButton.isBordered = false
         clearButton.font = .systemFont(ofSize: 11)
         clearButton.contentTintColor = NSColor.white.withAlphaComponent(0.65)
-        clearButton.setAccessibilityLabel(L("清空暂存"))
+        clearButton.setAccessibilityLabel(L("删除所选项目"))
+        clearButton.isEnabled = false
         addSubview(clearButton)
 
         selectAllButton.target = self
@@ -445,7 +521,15 @@ final class ExpandedView: NSView {
         NSRect(x: 14, y: bounds.height - 41, width: bounds.width - 28, height: 1).fill()
     }
 
-    @objc private func clearClicked() { onClear?() }
+    var selectedIDs: [UUID] { items.filter { selection.contains($0.id) }.map(\.id) }
+
+    func deleteSelected() {
+        let ids = selectedIDs
+        guard !ids.isEmpty else { return }
+        onDeleteSelected?(ids)
+    }
+
+    @objc private func clearClicked() { deleteSelected() }
     @objc private func collapseClicked() { onCollapseClick?() }
 
     /// 全选按钮：全部选中时再点一下 = 取消全选。
@@ -457,6 +541,28 @@ final class ExpandedView: NSView {
         }
         selectionAnchor = nil
         applySelection()
+    }
+
+    /// Flatten each visible row at native resolution so newly created icon and
+    /// text layers transform together on their very first collapse.
+    func prepareRowsForTransition() {
+        let scale = window?.backingScaleFactor ?? 2
+        for row in rows.values {
+            row.needsLayout = true
+            row.layoutSubtreeIfNeeded()
+            func prepare(_ view: NSView) {
+                for child in view.subviews { prepare(child) }
+                view.displayIfNeeded()
+                view.layer?.displayIfNeeded()
+            }
+            prepare(row)
+            row.layer?.rasterizationScale = scale
+            row.layer?.shouldRasterize = true
+        }
+    }
+
+    func finishRowTransition() {
+        for row in rows.values { row.layer?.shouldRasterize = false }
     }
 
     private func rebuildRows() {
@@ -477,7 +583,7 @@ final class ExpandedView: NSView {
         updateVisibleRows()
         needsLayout = true
         countLabel.stringValue = items.isEmpty ? "" : String(format: L("%d 项"), items.count)
-        clearButton.isEnabled = !items.isEmpty
+        clearButton.isEnabled = !selection.isEmpty
         selectAllButton.isEnabled = !items.isEmpty
     }
 
@@ -535,7 +641,7 @@ final class ExpandedView: NSView {
                 self?.handleRightClick(item: item)
             }
             row.onSelectAllRequest = { [weak self] in self?.selectAll() }
-            row.onClearRequest = { [weak self] in self?.onClear?() }
+            row.onClearRequest = { [weak self] in self?.deleteSelected() }
             row.dragItemsProvider = { [weak self] in
                 guard let self else { return [] }
                 return self.items.filter { self.selection.contains($0.id) }
@@ -592,6 +698,7 @@ final class ExpandedView: NSView {
     }
 
     private func applySelection() {
+        clearButton.isEnabled = !selection.isEmpty
         for (id, row) in rows { row.isSelected = selection.contains(id) }
     }
 
@@ -654,7 +761,7 @@ final class ExpandedView: NSView {
 
         menu.addItem(.separator())
 
-        let clearItem = NSMenuItem(title: L("清空暂存"), action: #selector(ctxClear), keyEquivalent: "")
+        let clearItem = NSMenuItem(title: L("删除所选项目"), action: #selector(ctxClear), keyEquivalent: "")
         clearItem.target = self
         menu.addItem(clearItem)
 
@@ -667,7 +774,7 @@ final class ExpandedView: NSView {
         selectionAnchor = nil
         applySelection()
     }
-    @objc private func ctxClear() { onClear?() }
+    @objc private func ctxClear() { deleteSelected() }
 }
 
 // MARK: - 暂存条目行（支持拖出、双击打开、移除）
@@ -820,7 +927,7 @@ final class ItemRowView: NSView, NSDraggingSource {
         selectAllItem.target = self
         menu.addItem(selectAllItem)
 
-        let clearItem = NSMenuItem(title: L("清空暂存"), action: #selector(menuClear), keyEquivalent: "")
+        let clearItem = NSMenuItem(title: L("删除所选项目"), action: #selector(menuClear), keyEquivalent: "")
         clearItem.target = self
         menu.addItem(clearItem)
 
@@ -1083,4 +1190,9 @@ final class ListContainerView: NSView {
         bandLayer.path = nil
         onBandSelectEnd?()
     }
+}
+
+/// Animation-only content must not intercept clicks intended for the panel.
+private final class TransitionImageView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

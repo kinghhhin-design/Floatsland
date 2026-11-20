@@ -30,6 +30,18 @@ final class AppSettings {
                            forKey: "collapseAnimationDuration") }
     }
 
+    /// Only the collapsed capsule is translucent; expanded content stays opaque.
+    var capsuleOpacity: Double {
+        get {
+            let value = defaults.object(forKey: "capsuleOpacity") as? Double ?? 1
+            return value.isFinite ? min(1, max(0, value)) : 1
+        }
+        set {
+            defaults.set(newValue.isFinite ? min(1, max(0, newValue)) : 1, forKey: "capsuleOpacity")
+            notify()
+        }
+    }
+
     private enum Key {
         static let showOnAllScreens = "showOnAllScreens"
         static let launchAtLogin = "launchAtLogin"

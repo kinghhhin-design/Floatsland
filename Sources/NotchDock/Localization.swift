@@ -45,6 +45,11 @@ enum Localization {
         catalog[key]?[(language ?? self.language).column] ?? key
     }
     static let catalog: [String: [String]] = [
+        "当前已暂存 %d 项": ["当前已暂存 %d 项", "目前已暫存 %d 項", "%d items currently on the shelf", "現在 %d 項目を保管中", "현재 %d개 항목 보관 중"],
+        "删除": ["删除", "刪除", "Delete", "削除", "삭제"],
+        "删除所选项目": ["删除所选项目", "刪除所選項目", "Delete Selected Items", "選択した項目を削除", "선택한 항목 삭제"],
+        "胶囊不透明度": ["胶囊不透明度", "膠囊不透明度", "Capsule opacity", "カプセルの不透明度", "캡슐 불투명도"],
+        "仅影响收起的胶囊，展开后保持纯黑、不透明。": ["仅影响收起的胶囊，展开后保持纯黑、不透明。", "僅影響收合的膠囊，展開後保持純黑、不透明。", "Only the collapsed capsule is translucent. The expanded panel stays solid black.", "閉じたカプセルにのみ適用。展開後は不透明な黒のままです。", "접힌 캡슐에만 적용됩니다. 펼치면 불투명한 검은색을 유지합니다."],
         "展开动画时长": ["展开动画时长", "展開動畫時長", "Expand duration", "展開アニメーション時間", "펼치기 애니메이션 시간"],
         "收起动画时长": ["收起动画时长", "收合動畫時長", "Collapse duration", "収納アニメーション時間", "접기 애니메이션 시간"],
         "%.2f 秒": ["%.2f 秒", "%.2f 秒", "%.2f s", "%.2f 秒", "%.2f초"],

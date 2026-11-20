@@ -13,12 +13,15 @@ final class MouseTracker {
     private(set) var state = ZoneState()
     var onStateChange: ((ZoneState) -> Void)?
     var containsPanel: ((NSPoint) -> Bool)?
+    var onMouseDown: ((NSPoint) -> Void)?
+    private var pressedButtons = 0
 
     private var timer: Timer?
     private let dragPasteboard = NSPasteboard(name: .drag)
 
     func start() {
         guard timer == nil else { return }
+        pressedButtons = Int(NSEvent.pressedMouseButtons)
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -34,6 +37,12 @@ final class MouseTracker {
 
     private func tick() {
         let mouse = NSEvent.mouseLocation
+        // Show Desktop can consume a click before AppKit's event monitors see it.
+        // Poll the session button state as a fallback, emitting only down edges.
+        let buttons = Int(NSEvent.pressedMouseButtons)
+        let newlyPressed = buttons & ~pressedButtons
+        pressedButtons = buttons
+        if newlyPressed != 0 { onMouseDown?(mouse) }
         var newState = ZoneState()
         newState.inPanel = containsPanel?(mouse) ?? false
 

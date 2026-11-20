@@ -77,6 +77,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var islandXLabel: NSTextField!
     private var islandYSlider: NSSlider!
     private var islandYLabel: NSTextField!
+    private var capsuleOpacitySlider: NSSlider!
+    private var capsuleOpacityLabel: NSTextField!
     private var pillWSlider: NSSlider!
     private var pillWLabel: NSTextField!
     private var pillHSlider: NSSlider!
@@ -251,6 +253,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let sizeTitle = NSTextField(labelWithString: L("小岛大小（实时生效）"))
         sizeTitle.font = .systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(sizeTitle)
+
+        capsuleOpacitySlider = makeSlider(min: 0, max: 100)
+        capsuleOpacitySlider.target = self
+        capsuleOpacitySlider.action = #selector(capsuleOpacityChanged(_:))
+        capsuleOpacitySlider.setAccessibilityLabel(L("胶囊不透明度"))
+        capsuleOpacitySlider.toolTip = L("仅影响收起的胶囊，展开后保持纯黑、不透明。")
+        capsuleOpacityLabel = valueLabel()
+        stack.addArrangedSubview(labeledRow(rowLabel(L("胶囊不透明度")), capsuleOpacitySlider, capsuleOpacityLabel))
+        let opacityHint = NSTextField(wrappingLabelWithString: L("仅影响收起的胶囊，展开后保持纯黑、不透明。"))
+        opacityHint.font = .systemFont(ofSize: 11)
+        opacityHint.textColor = .secondaryLabelColor
+        opacityHint.widthAnchor.constraint(lessThanOrEqualToConstant: 560).isActive = true
+        stack.addArrangedSubview(opacityHint)
 
         // 胶囊宽度
         pillWSlider = makeSlider(min: 80, max: 400)
@@ -456,6 +471,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         updateLabels()
     }
 
+    @objc private func capsuleOpacityChanged(_ sender: NSSlider) {
+        sender.doubleValue = sender.doubleValue.rounded()
+        settings.capsuleOpacity = sender.doubleValue / 100
+        updateLabels()
+    }
+
     @objc private func pillWChanged(_ sender: NSSlider) {
         settings.pillWidth = sender.doubleValue
         updateLabels()
@@ -515,6 +536,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateLabels() {
+        capsuleOpacityLabel.stringValue = "\(Int(capsuleOpacitySlider.doubleValue))%"
         expandAnimationLabel.stringValue = String(format: L("%.2f 秒"), expandAnimationSlider.doubleValue)
         collapseAnimationLabel.stringValue = String(format: L("%.2f 秒"), collapseAnimationSlider.doubleValue)
         collapseDelayLabel.stringValue = String(format: L("%.1f 秒"), collapseDelaySlider.doubleValue)
@@ -553,6 +575,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         zoneYSlider.doubleValue = settings.zoneOffsetY
         islandXSlider.doubleValue = settings.islandOffsetX
         islandYSlider.doubleValue = settings.islandTopMargin
+        capsuleOpacitySlider.doubleValue = settings.capsuleOpacity * 100
         pillWSlider.doubleValue = settings.pillWidth
         pillHSlider.doubleValue = settings.pillHeight
         panelWSlider.doubleValue = settings.panelWidth

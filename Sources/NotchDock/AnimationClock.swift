@@ -15,8 +15,8 @@ final class AnimationClock {
            let screen = NSScreen.screens.first(where: { IslandMetrics.screenNumber($0).uint32Value == displayID }) {
             let target = DisplayLinkTarget(tick: tick)
             let link = screen.displayLink(target: target, selector: #selector(DisplayLinkTarget.update(_:)))
-            let maximum = Float(max(30, screen.maximumFramesPerSecond))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+            let maximum = Float(min(120, max(30, screen.maximumFramesPerSecond)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: maximum, maximum: maximum, preferred: maximum)
             link.add(to: .main, forMode: .common)
             stopModernLink = { link.invalidate() }
             isDisplaySynchronized = true

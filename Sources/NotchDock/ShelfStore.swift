@@ -92,6 +92,16 @@ final class ShelfStore {
         onChange?()
     }
 
+    /// Batch removal saves and refreshes once; external originals remain untouched.
+    func remove(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let before = items.count
+        items = items.filter { !ids.contains($0.id) || !trashManagedImage(for: $0) }
+        guard items.count != before else { return }
+        save()
+        onChange?()
+    }
+
     func clear() {
         guard !items.isEmpty else { return }
         items = items.filter { !trashManagedImage(for: $0) }

@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.3.0
+
+- 收起时，文字与图标随外框收拢进度同步淡出。
+
+- Keep the expanded window level throughout collapse and lower it only after committing the capsule, avoiding a stale expanded surface during Show Desktop restoration.
+
+- Add session mouse-button polling as a fallback for outside clicks consumed by Show Desktop, so returning to application windows dismisses the expanded island.
+
+- Animate a fixed snapshot of the shelf content during window transitions, then restore live controls at completion, isolating text layers from desktop window restoration.
+
+- Preserve content aspect ratio while following the animated panel, avoiding stretched text/icons during collapse and desktop window restoration.
+
+- Prepare and rasterize visible rows at native display resolution during transitions so first-drop icon/text layers scale together.
+
+- Keep content geometry locked to the actual animated panel bounds; fading no longer controls content movement.
+
+- Animate the complete content between the capsule rectangle and its expanded layout, so it unfolds from and returns into the capsule.
+
+- Gather content toward the capsule when closing and expand it outward when opening; request a display-synchronized 120 Hz animation cadence where supported.
+
+- Automatically expand and show the current item count for five seconds when additions cross 50, 100 or 200 items; batch additions show one reminder and loading saved items does not trigger it.
+
+- Replace Clear actions with Delete Selected; batch-remove only selected references, preserving external originals and existing owned-screenshot Trash behavior.
+
+
+- Add a persistent capsule opacity setting (0–100%, retaining interaction when invisible) in all five languages; opening and closing animations and the expanded panel stay fully opaque black.
+
 ## 2.2.1
 
 - 修复了已知的问题

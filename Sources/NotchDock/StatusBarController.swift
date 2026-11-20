@@ -47,9 +47,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        let clearItem = NSMenuItem(title: L("清空暂存"), action: #selector(clearShelf), keyEquivalent: "")
+        let clearItem = NSMenuItem(title: L("删除所选项目"), action: #selector(clearShelf), keyEquivalent: "")
         clearItem.target = self
-        clearItem.isEnabled = !store.items.isEmpty
+        clearItem.isEnabled = !(manager?.selectedShelfIDs.isEmpty ?? true)
+        menu.autoenablesItems = false
         menu.addItem(clearItem)
 
         menu.addItem(.separator())
@@ -80,7 +81,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func clearShelf() {
-        store.clear()
+        manager?.deleteSelectedItems()
     }
 
     @objc private func quit() {

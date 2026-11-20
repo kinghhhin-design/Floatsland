@@ -27,6 +27,43 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     private(set) var isHovered = false
     private var transitionTimer: AnimationClock?
 
+    private var closingSurface: NSPanel?
+
+    // Give the compositor a fresh, stationary surface. Show Desktop may already
+    // be transforming a cached image of the interactive panel.
+    private func beginClosingSurface(_ frame: NSRect) {
+        let surface = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+                              backing: .buffered, defer: false)
+        surface.isOpaque = false
+        surface.backgroundColor = .clear
+        surface.hasShadow = false
+        surface.animationBehavior = .none
+        surface.hidesOnDeactivate = false
+        surface.collectionBehavior = panel.collectionBehavior
+        surface.level = panel.level
+        surface.ignoresMouseEvents = true
+        surface.appearance = panel.appearance
+        let host = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        host.wantsLayer = true
+        surface.contentView = host
+        host.addSubview(rootView)
+        rootView.frame = host.bounds
+        closingSurface = surface
+        surface.orderFrontRegardless()
+        panel.alphaValue = 0
+    }
+
+    private func endClosingSurface() {
+        guard let surface = closingSurface, let host = panel.contentView else { return }
+        let frame = surface.convertToScreen(rootView.convert(rootView.bounds, to: nil))
+        panel.setFrame(frame, display: false)
+        host.addSubview(rootView)
+        rootView.frame = host.bounds
+        surface.orderOut(nil)
+        closingSurface = nil
+        panel.alphaValue = 1
+    }
+
     init(screen: NSScreen) {
         screenNumber = IslandMetrics.screenNumber(screen)
         panel = IslandPanel(contentRect: IslandMetrics.pillFrame(for: screen),
@@ -36,7 +73,9 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         rootView = IslandRootView(frame: NSRect(origin: .zero, size: IslandMetrics.pillSize))
         super.init()
 
-        panel.contentView = rootView
+        let host = NSView(frame: rootView.bounds)
+        host.addSubview(rootView)
+        panel.contentView = host
         panel.delegate = self
 
         panel.isOpaque = false
@@ -99,7 +138,7 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         }
 
         let expanded = rootView.expandedView
-        expanded.onClear = { [weak self] in self?.manager?.shelf.clear() }
+        expanded.onDeleteSelected = { [weak self] ids in self?.manager?.shelf.remove(ids: Set(ids)) }
         expanded.onCollapseClick = { [weak self] in
             guard let self else { return }
             self.manager?.togglePanel(self)
@@ -147,13 +186,15 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     func collapse(animated: Bool = true) {
         guard isExpanded else { return }
         isExpanded = false
-        panel.level = .statusBar
+        // Keep the expanded window level until its content has collapsed. Lowering
+        // it here lets Show Desktop restore a frozen expanded surface over our frames.
         transition(expanded: false, animated: animated)
     }
 
     private func transition(expanded: Bool, animated: Bool) {
         transitionTimer?.invalidate()
-        let start = panel.frame
+        endClosingSurface()
+        let start = panel.convertToScreen(rootView.convert(rootView.bounds, to: nil))
         let end = frameForCurrentScreen(expanded: expanded)
         let startOpacity = rootView.expandedView.alphaValue
         let endOpacity: CGFloat = expanded ? 1 : 0
@@ -163,13 +204,16 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         rootView.setExpanded(expanded)
         let contentFrame = frameForCurrentScreen(expanded: true)
         rootView.prepareTransition(contentSize: contentFrame.size, screenFrame: contentFrame)
+        if !expanded && animated && panel.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            beginClosingSurface(start)
+        }
         let backingScale = currentScreen()?.backingScaleFactor ?? 2
         let apply: (CGFloat, CGFloat, Bool) -> Void = { [weak self] progress, opacityProgress, finished in
             guard let self else { return }
             let interpolated = NSRect(x: start.minX + (end.minX - start.minX) * progress,
-                               y: start.minY + (end.minY - start.minY) * progress,
-                               width: start.width + (end.width - start.width) * progress,
-                               height: start.height + (end.height - start.height) * progress)
+                                      y: start.minY + (end.minY - start.minY) * progress,
+                                      width: start.width + (end.width - start.width) * progress,
+                                      height: start.height + (end.height - start.height) * progress)
             // Commit window geometry, content positioning and visual state together.
             // Drawing before repositioning content can expose a stale text position.
             func pixel(_ value: CGFloat) -> CGFloat { (value * backingScale).rounded() / backingScale }
@@ -178,8 +222,15 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
                                height: pixel(interpolated.maxY) - pixel(interpolated.minY))
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            if self.panel.frame != frame {
+            // Keep the system window outline in sync with the animated snapshot.
+            if self.closingSurface == nil && self.panel.frame != frame {
+                if !expanded { self.panel.disableScreenUpdatesUntilFlush() }
                 self.panel.setFrame(frame, display: false)
+            }
+            let renderingWindow = self.closingSurface ?? self.panel
+            let local = renderingWindow.convertFromScreen(frame)
+            if self.rootView.frame != local {
+                self.rootView.frame = local
                 self.rootView.needsLayout = true
                 self.rootView.layoutSubtreeIfNeeded()
             }
@@ -188,8 +239,14 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
                 cornerRadius: startCorner + (endCorner - startCorner) * progress,
                 squareTop: squareTop, finished: finished)
             self.rootView.layoutSubtreeIfNeeded()
-            self.rootView.displayIfNeeded()
+            if expanded { self.rootView.displayIfNeeded() } else { renderingWindow.displayIfNeeded() }
             CATransaction.commit()
+            if finished && !expanded {
+                self.endClosingSurface()
+                // Publish the capsule before changing its WindowServer ordering.
+                CATransaction.flush()
+                self.panel.level = .statusBar
+            }
         }
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             transitionTimer = nil
@@ -202,8 +259,8 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         let configuredDuration = expanded ? AppSettings.shared.expandAnimationDuration
                                           : AppSettings.shared.collapseAnimationDuration
         let geometryDuration: Double = start == end ? 0 : configuredDuration * (expanded ? 0.80 : 1)
-        let fadeDuration: Double = abs(endOpacity - startOpacity) < 0.001 ? 0 : configuredDuration * (expanded ? 1 : 0.75)
-        let duration = max(geometryDuration, fadeDuration)
+        let openingFadeDuration = expanded && abs(endOpacity - startOpacity) >= 0.001 ? configuredDuration : 0
+        let duration = max(geometryDuration, openingFadeDuration)
         func phase(_ elapsed: Double, length: Double) -> Double {
             length > 0 ? min(1, max(0, elapsed / length)) : 1
         }
@@ -212,7 +269,9 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
             guard let self else { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - began
             let geometry = IslandAnimationCurve.geometry(phase(elapsed, length: geometryDuration))
-            let opacity = IslandAnimationCurve.opacity(phase(elapsed, length: fadeDuration))
+            let opacity = expanded
+                ? IslandAnimationCurve.opacity(phase(elapsed, length: openingFadeDuration))
+                : geometry
             let finished = elapsed >= duration
             apply(geometry, opacity, finished)
             if finished {
@@ -256,12 +315,15 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     }
 
     func reposition() {
+        endClosingSurface()
         transitionTimer?.invalidate()
         transitionTimer = nil
         panel.setFrame(frameForCurrentScreen(expanded: isExpanded), display: true)
+        if let host = panel.contentView { rootView.frame = host.bounds }
         rootView.applyTransition(opacity: isExpanded ? 1 : 0,
                                  cornerRadius: isExpanded ? IslandMetrics.expandedCorner : IslandMetrics.collapsedCorner,
                                  squareTop: touchesScreenTop(panel.frame), finished: true)
+        panel.level = isExpanded ? .popUpMenu : .statusBar
     }
 
     func showPanel() {
@@ -269,10 +331,12 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     }
 
     func hidePanel() {
+        if closingSurface != nil { reposition() }
         panel.orderOut(nil)
     }
 
     func closePanel() {
+        endClosingSurface()
         transitionTimer?.invalidate()
         panel.close()
     }

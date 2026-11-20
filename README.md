@@ -39,7 +39,7 @@ Copy text or take a screenshot to the clipboard while Floatsland is running; it 
 
 Removing an automatically saved screenshot, or clearing the shelf, moves that screenshot to **Trash**. It remains recoverable and uses disk space until Trash is emptied. If moving it fails, the shelf entry is kept. Ordinary file references never delete or trash the original.
 
-移除自动保存的截图或清空暂存时，截图会移到**废纸篓**；清空废纸篓后才释放其空间。普通文件只保存引用，移除暂存不会删除原文件。
+“删除”仅移除当前选中的暂存项目；没有选择时不执行删除。如需全部移除，可先“全选”再“删除”。删除自动保存的截图时，截图会移到**废纸篓**；清空废纸篓后才释放其空间。普通文件只保存引用，移除暂存不会删除原文件。
 
 **Ordinary files are references, not backups.** Removing a shelf entry does not delete the original; moving or deleting the original may invalidate the entry. Text fragments and file paths are stored locally in UserDefaults. The app has no built-in network service or analytics.
 
@@ -65,3 +65,9 @@ Notch geometry and available workspace are queried at runtime. Every display sca
 MIT. See [LICENSE](LICENSE).
 
 设置中的“展开动画时长”和“收起动画时长”可分别调整为 0.10–1.50 秒，默认分别为 0.34 秒和 0.24 秒。修改自动保存，下次动画生效，与“自动收起延迟”独立。
+
+暂存总数从低于门槛增加到达到或超过 50、100、200 项时，会自动展开并提示当前数量约 5 秒。批量跨过多个门槛只提示一次；重启加载不触发。鼠标在面板内仍不会自动收起。
+
+- 桌面返回应用层：通过鼠标按键轮询补充外部点击检测，避免系统接管点击后展开面板未收起。
+
+收起动画完成并提交胶囊画面后才降低窗口层级，避免桌面恢复窗口时整块展开画面滞留到动画结束。

@@ -15,13 +15,17 @@ final class IslandManager {
     private var dropActive = false
     private var manuallyCollapsed = Set<NSNumber>()
     private var collapseWorkItem: DispatchWorkItem?
+    private var previousShelfCount = 0
+    private var countReminderUntil: TimeInterval = 0
+    private var countReminderWork: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
     private(set) var visible = true
 
     init() {
-        shelf.onChange = { [weak self] in self?.refreshAll() }
+        previousShelfCount = shelf.items.count
+        shelf.onChange = { [weak self] in self?.shelfDidChange() }
 
         let settingsObs = NotificationCenter.default.addObserver(
             forName: .settingsChanged, object: nil, queue: .main) { [weak self] _ in
@@ -55,6 +59,9 @@ final class IslandManager {
         tracker.containsPanel = { [weak self] point in
             self?.controllers.values.contains { $0.containsPointer(point) } ?? false
         }
+        tracker.onMouseDown = { [weak self] point in
+            self?.dismissForOutsideClick(at: point)
+        }
         tracker.start()
         clipboardImages.start()
         clipboardText.start()
@@ -87,6 +94,7 @@ final class IslandManager {
     private func dismissForOutsideClick(at point: NSPoint) {
         guard outDragSessions == 0,
               !controllers.values.contains(where: { $0.containsPointer(point) }) else { return }
+        guard controllers.values.contains(where: { $0.isExpanded }) else { return }
         cancelPendingCollapse()
         dropActive = false
         for controller in controllers.values where controller.isExpanded {
@@ -100,6 +108,7 @@ final class IslandManager {
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         collapseWorkItem?.cancel()
+        countReminderWork?.cancel()
         tracker.stop()
         clipboardImages.stop()
         clipboardText.stop()
@@ -131,6 +140,47 @@ final class IslandManager {
         rebuildPanels()
         for controller in controllers.values { controller.reposition() }
         refreshAll()
+    }
+
+    var selectedShelfIDs: Set<UUID> {
+        Set(controllers.values.flatMap { $0.rootView.expandedView.selectedIDs })
+    }
+
+    func deleteSelectedItems() { shelf.remove(ids: selectedShelfIDs) }
+
+    static func crossedCountReminder(from oldCount: Int, to newCount: Int) -> Bool {
+        [50, 100, 200].contains { oldCount < $0 && newCount >= $0 }
+    }
+
+    private func shelfDidChange() {
+        let count = shelf.items.count
+        let shouldRemind = Self.crossedCountReminder(from: previousShelfCount, to: count)
+        previousShelfCount = count
+        refreshAll()
+        guard shouldRemind else { return }
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
+        let number = screen.map { IslandMetrics.screenNumber($0) }
+        guard let controller = number.flatMap({ controllers[$0] }) ?? controllers.values.first else { return }
+        cancelPendingCollapse()
+        countReminderWork?.cancel()
+        countReminderUntil = ProcessInfo.processInfo.systemUptime + 5
+        manuallyCollapsed.remove(controller.screenNumber)
+        controller.showPanel()
+        controller.expand()
+        controller.rootView.expandedView.showCountReminder(count)
+        let finish = DispatchWorkItem { [weak self, weak controller] in
+            guard let self else { return }
+            self.countReminderUntil = 0
+            if !self.settings.islandVisible {
+                controller?.collapse(animated: false)
+                controller?.hidePanel()
+            } else {
+                self.scheduleCollapse(delay: self.settings.collapseDelay)
+            }
+        }
+        countReminderWork = finish
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: finish)
     }
 
     func refreshAll() {
@@ -291,7 +341,8 @@ final class IslandManager {
     }
 
     private func canCollapseNow() -> Bool {
-        guard outDragSessions == 0, !dropActive else { return false }
+        guard outDragSessions == 0, !dropActive,
+              ProcessInfo.processInfo.systemUptime >= countReminderUntil else { return false }
         let mouse = NSEvent.mouseLocation
         if NSScreen.screens.contains(where: { IslandMetrics.zoneRect(for: $0).contains(mouse) }) { return false }
         if controllers.values.contains(where: { $0.containsPointer(mouse) }) { return false }
