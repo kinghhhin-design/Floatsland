@@ -81,15 +81,18 @@ final class IslandRootView: NSView {
     }
 
     private func positionTransitionImage() {
-        guard !expanded, let size = transitionContentSize else {
+        guard let size = transitionContentSize, size.width > 0, size.height > 0 else {
             transitionImage.frame = bounds
             return
         }
-        // Keep closing content at its native size. The root clips the snapshot
-        // from the sides and bottom while its existing opacity curve fades it.
-        transitionImage.frame = NSRect(x: bounds.midX - size.width / 2,
-                                       y: bounds.maxY - size.height,
-                                       width: size.width, height: size.height)
+        // The animated bounds center travels from the capsule to the shelf.
+        // Follow that center in either direction with one scale for both axes.
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        let width = size.width * scale
+        let height = size.height * scale
+        transitionImage.frame = NSRect(x: bounds.midX - width / 2,
+                                       y: bounds.midY - height / 2,
+                                       width: width, height: height)
     }
 
     func prepareTransition(contentSize: NSSize, screenFrame: NSRect? = nil) {
@@ -151,7 +154,7 @@ final class IslandRootView: NSView {
         let content = expandedView.bounds
         let destination = expandedView.convert(bounds, from: self)
         var transform = CATransform3DIdentity
-        if expanded && !finished && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if !finished && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let sx = destination.width / max(content.width, 1)
             let sy = destination.height / max(content.height, 1)
             // Preserve glyph/icon proportions even when the silhouette's aspect
