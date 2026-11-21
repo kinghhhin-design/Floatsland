@@ -2,6 +2,9 @@
 
 ## 2.3.0
 
+- 在其他应用输入时，操作暂存面板会保留原输入焦点。
+- 展开途中再次点击，可从当前位置收回。修复了显示桌面时收起画面停顿、变形的问题。
+
 - 收起时，文字与图标随外框收拢进度同步淡出。
 
 - Keep the expanded window level throughout collapse and lower it only after committing the capsule, avoiding a stale expanded surface during Show Desktop restoration.

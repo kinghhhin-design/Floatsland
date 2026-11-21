@@ -4,7 +4,8 @@ import AppKit
 final class IslandPanel: NSPanel {
     var onEscape: (() -> Void)?
 
-    override var canBecomeKey: Bool { true }
+    // Keep the insertion point and any marked text in the active editor.
+    override var canBecomeKey: Bool { NSApp.isActive }
     override var canBecomeMain: Bool { false }
 
     override func keyDown(with event: NSEvent) {
@@ -27,41 +28,13 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     private(set) var isHovered = false
     private var transitionTimer: AnimationClock?
 
-    private var closingSurface: NSPanel?
+    private let closingSnapshot = ClosingSnapshotView(frame: .zero)
 
-    // Give the compositor a fresh, stationary surface. Show Desktop may already
-    // be transforming a cached image of the interactive panel.
-    private func beginClosingSurface(_ frame: NSRect) {
-        let surface = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
-                              backing: .buffered, defer: false)
-        surface.isOpaque = false
-        surface.backgroundColor = .clear
-        surface.hasShadow = false
-        surface.animationBehavior = .none
-        surface.hidesOnDeactivate = false
-        surface.collectionBehavior = panel.collectionBehavior
-        surface.level = panel.level
-        surface.ignoresMouseEvents = true
-        surface.appearance = panel.appearance
-        let host = NSView(frame: NSRect(origin: .zero, size: frame.size))
-        host.wantsLayer = true
-        surface.contentView = host
-        host.addSubview(rootView)
-        rootView.frame = host.bounds
-        closingSurface = surface
-        surface.orderFrontRegardless()
-        panel.alphaValue = 0
-    }
-
-    private func endClosingSurface() {
-        guard let surface = closingSurface, let host = panel.contentView else { return }
-        let frame = surface.convertToScreen(rootView.convert(rootView.bounds, to: nil))
-        panel.setFrame(frame, display: false)
-        host.addSubview(rootView)
-        rootView.frame = host.bounds
-        surface.orderOut(nil)
-        closingSurface = nil
-        panel.alphaValue = 1
+    private func endClosingSnapshot() {
+        guard closingSnapshot.superview != nil else { return }
+        closingSnapshot.finish()
+        rootView.isHidden = false
+        panel.ignoresMouseEvents = false
     }
 
     init(screen: NSScreen) {
@@ -74,6 +47,7 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         super.init()
 
         let host = NSView(frame: rootView.bounds)
+        host.wantsLayer = true
         host.addSubview(rootView)
         panel.contentView = host
         panel.delegate = self
@@ -89,7 +63,6 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
         panel.isRestorable = false
         panel.animationBehavior = .none
         panel.ignoresMouseEvents = false
@@ -192,8 +165,9 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     }
 
     private func transition(expanded: Bool, animated: Bool) {
+        let reversingOpening = !expanded && transitionTimer != nil
         transitionTimer?.invalidate()
-        endClosingSurface()
+        endClosingSnapshot()
         let start = panel.convertToScreen(rootView.convert(rootView.bounds, to: nil))
         let end = frameForCurrentScreen(expanded: expanded)
         let startOpacity = rootView.expandedView.alphaValue
@@ -203,9 +177,21 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         let squareTop = touchesScreenTop(end)
         rootView.setExpanded(expanded)
         let contentFrame = frameForCurrentScreen(expanded: true)
-        rootView.prepareTransition(contentSize: contentFrame.size, screenFrame: contentFrame)
-        if !expanded && animated && panel.isVisible && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            beginClosingSurface(start)
+        let snapshot = rootView.prepareTransition(contentSize: contentFrame.size, screenFrame: contentFrame)
+        if !expanded, animated, panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+           let snapshot, let host = panel.contentView, closingSnapshot.prepare(snapshot) {
+            // Keep even an offset or unusually wide capsule inside the same drawable.
+            let canvas = start.union(end)
+            if panel.frame != canvas { panel.setFrame(canvas, display: false) }
+            rootView.frame = panel.convertFromScreen(start)
+            closingSnapshot.frame = host.bounds
+            host.addSubview(closingSnapshot)
+            if closingSnapshot.present(rect: rootView.frame, opacity: startOpacity, cornerRadius: startCorner, squareTop: squareTop) {
+                rootView.isHidden = true
+                panel.ignoresMouseEvents = true
+            } else {
+                endClosingSnapshot()
+            }
         }
         let backingScale = currentScreen()?.backingScaleFactor ?? 2
         let apply: (CGFloat, CGFloat, Bool) -> Void = { [weak self] progress, opacityProgress, finished in
@@ -222,27 +208,28 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
                                height: pixel(interpolated.maxY) - pixel(interpolated.minY))
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            // Keep the system window outline in sync with the animated snapshot.
-            if self.closingSurface == nil && self.panel.frame != frame {
-                if !expanded { self.panel.disableScreenUpdatesUntilFlush() }
+            let renderingSnapshot = self.closingSnapshot.superview != nil
+            if (!renderingSnapshot || finished) && self.panel.frame != frame {
                 self.panel.setFrame(frame, display: false)
             }
-            let renderingWindow = self.closingSurface ?? self.panel
-            let local = renderingWindow.convertFromScreen(frame)
+            let local = self.panel.convertFromScreen(frame)
             if self.rootView.frame != local {
                 self.rootView.frame = local
                 self.rootView.needsLayout = true
                 self.rootView.layoutSubtreeIfNeeded()
             }
-            self.rootView.applyTransition(
-                opacity: startOpacity + (endOpacity - startOpacity) * opacityProgress,
-                cornerRadius: startCorner + (endCorner - startCorner) * progress,
-                squareTop: squareTop, finished: finished)
+            let opacity = startOpacity + (endOpacity - startOpacity) * opacityProgress
+            let corner = startCorner + (endCorner - startCorner) * progress
+            self.rootView.applyTransition(opacity: opacity, cornerRadius: corner, squareTop: squareTop, finished: finished)
             self.rootView.layoutSubtreeIfNeeded()
-            if expanded { self.rootView.displayIfNeeded() } else { renderingWindow.displayIfNeeded() }
+            if expanded { self.rootView.displayIfNeeded() } else { self.panel.displayIfNeeded() }
             CATransaction.commit()
+            if renderingSnapshot && !finished,
+               !self.closingSnapshot.present(rect: local, opacity: opacity, cornerRadius: corner, squareTop: squareTop) {
+                self.endClosingSnapshot()
+            }
             if finished && !expanded {
-                self.endClosingSurface()
+                self.endClosingSnapshot()
                 // Publish the capsule before changing its WindowServer ordering.
                 CATransaction.flush()
                 self.panel.level = .statusBar
@@ -258,7 +245,15 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
         // keeps its full-size layout while its composited layers gently scale in.
         let configuredDuration = expanded ? AppSettings.shared.expandAnimationDuration
                                           : AppSettings.shared.collapseAnimationDuration
-        let geometryDuration: Double = start == end ? 0 : configuredDuration * (expanded ? 0.80 : 1)
+        var geometryDuration = configuredDuration * (expanded ? 0.80 : 1)
+        if start == end {
+            geometryDuration = 0
+        } else if reversingOpening {
+            // A second click only needs to retrace the distance already travelled.
+            let remaining = hypot(start.width - end.width, start.height - end.height)
+            let fullTravel = hypot(contentFrame.width - end.width, contentFrame.height - end.height)
+            geometryDuration *= min(1, remaining / max(1, fullTravel))
+        }
         let openingFadeDuration = expanded && abs(endOpacity - startOpacity) >= 0.001 ? configuredDuration : 0
         let duration = max(geometryDuration, openingFadeDuration)
         func phase(_ elapsed: Double, length: Double) -> Double {
@@ -315,7 +310,7 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     }
 
     func reposition() {
-        endClosingSurface()
+        endClosingSnapshot()
         transitionTimer?.invalidate()
         transitionTimer = nil
         panel.setFrame(frameForCurrentScreen(expanded: isExpanded), display: true)
@@ -331,12 +326,12 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     }
 
     func hidePanel() {
-        if closingSurface != nil { reposition() }
+        if closingSnapshot.superview != nil { reposition() }
         panel.orderOut(nil)
     }
 
     func closePanel() {
-        endClosingSurface()
+        endClosingSnapshot()
         transitionTimer?.invalidate()
         panel.close()
     }

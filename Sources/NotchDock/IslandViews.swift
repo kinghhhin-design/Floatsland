@@ -95,7 +95,13 @@ final class IslandRootView: NSView {
                                        width: width, height: height)
     }
 
-    func prepareTransition(contentSize: NSSize, screenFrame: NSRect? = nil) {
+    func prepareTransition(contentSize: NSSize, screenFrame: NSRect? = nil) -> CGImage? {
+        // A reversal starts with the same pixels that are already on screen.
+        if transitionContentSize == contentSize, transitionScreenFrame == screenFrame,
+           let snapshot = transitionImage.snapshot {
+            expandedView.isHidden = true
+            return snapshot
+        }
         // A first drop creates new row layers. Finish their layout and drawing
         // before starting the animation clock, not during its first frames.
         CATransaction.begin()
@@ -113,9 +119,11 @@ final class IslandRootView: NSView {
         expandedView.layer?.sublayerTransform = CATransform3DIdentity
         let priorAlpha = expandedView.alphaValue
         expandedView.alphaValue = 1
+        var snapshot: CGImage?
         if let bitmap = expandedView.bitmapImageRepForCachingDisplay(in: expandedView.bounds) {
             expandedView.cacheDisplay(in: expandedView.bounds, to: bitmap)
-            transitionImage.layer?.contents = bitmap.cgImage
+            snapshot = bitmap.cgImage
+            transitionImage.snapshot = snapshot
             positionTransitionImage()
             transitionImage.alphaValue = priorAlpha
             transitionImage.isHidden = false
@@ -124,6 +132,7 @@ final class IslandRootView: NSView {
         expandedView.alphaValue = priorAlpha
         expandedView.layer?.sublayerTransform = priorTransform
         CATransaction.commit()
+        return snapshot
     }
 
     func setExpanded(_ flag: Bool) {
@@ -172,7 +181,7 @@ final class IslandRootView: NSView {
         CATransaction.commit()
         if finished {
             transitionImage.isHidden = true
-            transitionImage.layer?.contents = nil
+            transitionImage.snapshot = nil
             expandedView.finishRowTransition()
             transitionScreenFrame = nil
             transitionContentSize = nil
@@ -187,9 +196,11 @@ final class IslandRootView: NSView {
         expandedView.items = shelfItems
     }
 
-    // Keep the original capsule's central header area clickable while expanded.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
+        // While the shelf is opening the entire visible surface is a toggle.
+        // Once it settles, the rows and buttons get their usual clicks again.
+        if expanded, transitionContentSize != nil, bounds.contains(local) { return self }
         let halfWidth = max(20, min(IslandMetrics.pillSize.width / 2, bounds.width / 2 - 110))
         if expanded, local.y >= bounds.height - 38, local.y <= bounds.height,
            abs(local.x - bounds.midX) <= halfWidth { return self }
@@ -742,7 +753,6 @@ final class ExpandedView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.makeKey()
         // 点击面板空白处取消选择
         if !selection.isEmpty {
             selection.removeAll()
@@ -902,7 +912,6 @@ final class ItemRowView: NSView, NSDraggingSource {
     // MARK: 右键：选中 + 弹出菜单
 
     override func rightMouseDown(with event: NSEvent) {
-        window?.makeKey()
         onRightClickRequest?()
         showContextMenu(with: event)
     }
@@ -944,7 +953,6 @@ final class ItemRowView: NSView, NSDraggingSource {
     @objc private func menuClear() { onClearRequest?() }
 
     override func mouseDown(with event: NSEvent) {
-        window?.makeKey()
         downLocation = convert(event.locationInWindow, from: nil)
         onMouseDownRequest?(event)
         if event.clickCount == 2 {
@@ -1197,5 +1205,9 @@ final class ListContainerView: NSView {
 
 /// Animation-only content must not intercept clicks intended for the panel.
 private final class TransitionImageView: NSView {
+    var snapshot: CGImage? {
+        didSet { layer?.contents = snapshot }
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
